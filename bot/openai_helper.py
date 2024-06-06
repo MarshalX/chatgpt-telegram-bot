@@ -230,7 +230,7 @@ class OpenAIHelper:
             cost = (0.000005 * response.usage.prompt_tokens) + (0.000015 * response.usage.completion_tokens)
             self.add_cost(chat_id, cost)
             total_cost = self.get_cost(chat_id)
-            price = f'¢{total_cost * 100:.2f}' if total_cost >= 0.01 else ''
+            price = f'¢{total_cost * 100:.2f}' if total_cost >= 1e-4 else ''
             answer += f'\n\n---\nID: {chat_id[-2:]} {price}'
 
             # bot_language = self.config['bot_language']
@@ -284,7 +284,7 @@ class OpenAIHelper:
             cost = (0.000005 * usage.prompt_tokens) + (0.000015 * usage.completion_tokens)
             self.add_cost(chat_id, cost)
             total_cost = self.get_cost(chat_id)
-            price = f'¢{total_cost * 100:.2f}' if total_cost >= 0.01 else ''
+            price = f'¢{total_cost * 100:.2f}' if total_cost >= 1e-4 else ''
             answer += f'\n\n---\nID: {chat_id[-2:]} {price}'
 
             # bot_language = self.config['bot_language']
