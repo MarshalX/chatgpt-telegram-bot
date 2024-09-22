@@ -345,14 +345,20 @@ class ChatGPTTelegramBot:
         )
         self.save_reply(sent_msg, update)
 
-    async def image(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def image_natural(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        return await self.image(update, context, style='natural')
+
+    async def image_vivid(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        return await self.image(update, context, style='vivid')
+
+    async def image(self, update: Update, context: ContextTypes.DEFAULT_TYPE, style: Optional[str] = None):
         """
         Generates an image for the given prompt using DALL·E APIs
         """
-        if not self.config['enable_image_generation'] or not await self.check_allowed_and_within_budget(
-            update, context
-        ):
-            return
+        # if not self.config['enable_image_generation'] or not await self.check_allowed_and_within_budget(
+        #     update, context
+        # ):
+        #     return
 
         if not has_image_gen_permission(self.config, update.message.from_user.id):
             await update.effective_message.reply_text(
@@ -378,7 +384,7 @@ class ChatGPTTelegramBot:
 
         async def _generate():
             try:
-                image_url, image_size = await self.openai.generate_image(prompt=image_query)
+                image_url, image_size = await self.openai.generate_image(prompt=image_query, style=style)
                 if self.config['image_receive_mode'] == 'photo':
                     await update.effective_message.reply_photo(
                         reply_to_message_id=get_reply_to_message_id(self.config, update),
@@ -1317,7 +1323,8 @@ class ChatGPTTelegramBot:
 
         application.add_handler(CommandHandler('reset', self.reset))
         # application.add_handler(CommandHandler('help', self.help))
-        application.add_handler(CommandHandler('image', self.image))
+        application.add_handler(CommandHandler('image', self.image_vivid))
+        application.add_handler(CommandHandler('imagereal', self.image_natural))
         application.add_handler(CommandHandler('tts', self.tts))
         # application.add_handler(CommandHandler('start', self.help))
         # application.add_handler(CommandHandler('stats', self.stats))

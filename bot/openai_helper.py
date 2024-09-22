@@ -450,10 +450,11 @@ class OpenAIHelper:
         )
         return await self.__handle_function_call(chat_id, response, stream, times + 1, plugins_used)
 
-    async def generate_image(self, prompt: str) -> tuple[str, str]:
+    async def generate_image(self, prompt: str, style: Optional[str] = None) -> tuple[str, str]:
         """
         Generates an image from the given prompt using DALL·E model.
         :param prompt: The prompt to send to the model
+        :param style: The style to use for the image
         :return: The image URL and the image size
         """
         bot_language = self.config['bot_language']
@@ -463,7 +464,7 @@ class OpenAIHelper:
                 n=1,
                 model=self.config['image_model'],
                 quality=self.config['image_quality'],
-                style=self.config['image_style'],
+                style=style or self.config['image_style'],
                 size=self.config['image_size'],
             )
 
