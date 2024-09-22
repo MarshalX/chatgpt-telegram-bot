@@ -93,7 +93,13 @@ class ChatGPTTelegramBot:
             self.commands.append(
                 BotCommand(
                     command='image',
-                    description=localized_text('image_description', bot_language),
+                    description='Generate VIVID styled image from prompt (e.g. /image cat)'
+                )
+            )
+            self.commands.append(
+                BotCommand(
+                    command='imagereal',
+                    description='Generate NATURAL styled image from prompt (e.g. /image cat)',
                 )
             )
 
