@@ -208,6 +208,16 @@ def is_admin(config, user_id: int, log_no_admin=False) -> bool:
 
     return False
 
+def has_image_gen_permission(config, user_id: int) -> bool:
+    if config['img_gen_access_user_ids'] == '-':
+        return False
+
+    img_gen_access_user_ids = config['img_gen_access_user_ids'].split(',')
+    if str(user_id) in img_gen_access_user_ids:
+        return True
+
+    return False
+
 
 def get_user_budget(config, user_id) -> float | None:
     """

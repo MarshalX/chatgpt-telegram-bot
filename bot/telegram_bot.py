@@ -45,7 +45,7 @@ from utils import (
     get_reply_to_message_id,
     get_stream_cutoff_values,
     handle_direct_result,
-    is_admin,
+    has_image_gen_permission,
     is_allowed,
     is_direct_result,
     is_group_chat,
@@ -354,7 +354,7 @@ class ChatGPTTelegramBot:
         ):
             return
 
-        if not is_admin(self.config, update.message.from_user.id):
+        if not has_image_gen_permission(self.config, update.message.from_user.id):
             await update.effective_message.reply_text(
                 message_thread_id=get_forum_thread_id(update),
                 reply_to_message_id=get_reply_to_message_id(self.config, update),
