@@ -312,7 +312,7 @@ class OpenAIHelper:
         show_plugins_used = len(plugins_used) > 0 and self.config['show_plugins_used']
         plugin_names = tuple(self.plugin_manager.get_plugin_source_name(plugin) for plugin in plugins_used)
         if self.config['show_usage']:
-            cost = get_model_cost(self.config['model'], response.usage)
+            cost = get_model_cost(self.config['model'], usage)
             self.add_cost(chat_id, cost)
 
             price = get_formatted_price(self.get_cost(chat_id))
@@ -709,7 +709,7 @@ class OpenAIHelper:
         # tokens_used = str(self.__count_tokens(self.conversations[chat_id]))
         tokens_used = usage.total_tokens
 
-        price = get_formatted_price(get_model_cost(self.config['model'], response.usage))
+        price = get_formatted_price(get_model_cost(self.config['model'], usage))
 
         # show_plugins_used = len(plugins_used) > 0 and self.config['show_plugins_used']
         # plugin_names = tuple(self.plugin_manager.get_plugin_source_name(plugin) for plugin in plugins_used)
