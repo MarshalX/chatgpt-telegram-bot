@@ -11,6 +11,7 @@ import httpx
 import openai
 import tiktoken
 from openai._utils import async_maybe_transform
+from openai.types import CompletionUsage
 from openai.types.chat import ChatCompletionMessageParam
 from PIL import Image
 from plugin_manager import PluginManager
@@ -36,7 +37,13 @@ GPT_4_128K_MODELS = (
     'gpt-4-turbo',
     'gpt-4-turbo-2024-04-09',
 )
-GPT_4O_MODELS = ('gpt-4o', 'gpt-4o-mini')
+GPT_4O_MODELS = (
+    'gpt-4o',
+    'gpt-4o-mini',
+    'gpt-4o-2024-08-06',
+    'gpt-4o-2024-05-13',
+    'gpt-4o-mini-2024-07-18',
+)
 GPT_ALL_MODELS = (
     GPT_3_MODELS
     + GPT_3_16K_MODELS
@@ -97,6 +104,31 @@ def are_functions_available(model: str) -> bool:
     if model == 'gpt-4-vision-preview':
         return False
     return True
+
+
+_MODELS_COST = {
+    # tuples of input price, output price per 1M in $
+    # ref: https://openai.com/api/pricing/
+    'gpt-4o-2024-05-13': (5, 15),
+    'gpt-4o-2024-08-06': (2.5, 10),
+    'gpt-4o': (2.5, 10),
+    'gpt-4o-mini': (0.15, 0.6),
+    'gpt-4o-mini-2024-07-18': (0.15, 0.6),
+}
+_DEFAULT_MODEL_PRICE = (0, 0)
+
+
+def get_model_cost(model: str, usage: CompletionUsage) -> float:
+    input_price_per_m, output_price_per_m = _MODELS_COST.get(model, _DEFAULT_MODEL_PRICE)
+
+    input_price = input_price_per_m / 1_000_000
+    output_price = output_price_per_m / 1_000_000
+
+    return (input_price * usage.prompt_tokens) + (output_price * usage.completion_tokens)
+
+
+def get_formatted_price(cost: float) -> str:
+    return f'¢{cost * 100:.2f}' if cost >= 1e-4 else ''
 
 
 # Load translations
@@ -202,7 +234,7 @@ class OpenAIHelper:
             await self.reset_chat_history(chat_id)
         return len(self.conversations[chat_id]), self.__count_tokens(self.conversations[chat_id])
 
-    async def get_chat_response(self, chat_id: str, query: str) -> tuple[str, str]:
+    async def get_chat_response(self, chat_id: str, query: str) -> tuple[str, int]:
         """
         Gets a full response from the GPT model.
         :param chat_id: The chat ID
@@ -214,7 +246,7 @@ class OpenAIHelper:
         if self.config['enable_functions'] and not self.conversations_vision[chat_id]:
             response, plugins_used = await self.__handle_function_call(chat_id, response)
             if is_direct_result(response):
-                return response, '0'
+                return response, 0
 
         answer = ''
 
@@ -233,24 +265,12 @@ class OpenAIHelper:
         show_plugins_used = len(plugins_used) > 0 and self.config['show_plugins_used']
         plugin_names = tuple(self.plugin_manager.get_plugin_source_name(plugin) for plugin in plugins_used)
         if self.config['show_usage']:
-            # gpt 4o-mini
-            cost = (0.00000015 * response.usage.prompt_tokens) + (0.0000006 * response.usage.completion_tokens)
-
-            # gpt 4o
-            # cost = (0.000005 * response.usage.prompt_tokens) + (0.000015 * response.usage.completion_tokens)
-
+            cost = get_model_cost(self.config['model'], response.usage)
             self.add_cost(chat_id, cost)
-            total_cost = self.get_cost(chat_id)
-            price = f'¢{total_cost * 100:.2f}' if total_cost >= 1e-4 else ''
+
+            price = get_formatted_price(self.get_cost(chat_id))
             answer += f'\n\n---\nID: {chat_id[-2:]} {price}'
 
-            # bot_language = self.config['bot_language']
-            # answer += (
-            #     "\n\n---\n"
-            #     f"ID: {chat_id[-2:]} 💰 {str(response.usage.total_tokens)} {localized_text('stats_tokens', bot_language)}"
-            #     f" ({str(response.usage.prompt_tokens)} {localized_text('prompt', bot_language)},"
-            #     f" {str(response.usage.completion_tokens)} {localized_text('completion', bot_language)})"
-            # )
             if show_plugins_used:
                 answer += f"\n🔌 {', '.join(plugin_names)}"
         elif show_plugins_used:
@@ -292,24 +312,12 @@ class OpenAIHelper:
         show_plugins_used = len(plugins_used) > 0 and self.config['show_plugins_used']
         plugin_names = tuple(self.plugin_manager.get_plugin_source_name(plugin) for plugin in plugins_used)
         if self.config['show_usage']:
-            # gpt 4o-mini
-            cost = (0.00000015 * usage.prompt_tokens) + (0.0000006 * usage.completion_tokens)
-
-            # gpt 4o
-            # cost = (0.000005 * usage.prompt_tokens) + (0.000015 * usage.completion_tokens)
-
+            cost = get_model_cost(self.config['model'], response.usage)
             self.add_cost(chat_id, cost)
-            total_cost = self.get_cost(chat_id)
-            price = f'¢{total_cost * 100:.2f}' if total_cost >= 1e-4 else ''
+
+            price = get_formatted_price(self.get_cost(chat_id))
             answer += f'\n\n---\nID: {chat_id[-2:]} {price}'
 
-            # bot_language = self.config['bot_language']
-            # answer += (
-            #     "\n\n---\n"
-            #     f"ID: {chat_id[-2:]} 💰 {str(usage.total_tokens)} {localized_text('stats_tokens', bot_language)}"
-            #     f" ({str(usage.prompt_tokens)} {localized_text('prompt', bot_language)},"
-            #     f" {str(usage.completion_tokens)} {localized_text('completion', bot_language)})"
-            # )
             if show_plugins_used:
                 answer += f"\n🔌 {', '.join(plugin_names)}"
         elif show_plugins_used:
@@ -701,9 +709,7 @@ class OpenAIHelper:
         # tokens_used = str(self.__count_tokens(self.conversations[chat_id]))
         tokens_used = usage.total_tokens
 
-        # gpt 4o-mini
-        cost = (0.00000015 * usage.prompt_tokens) + (0.0000006 * usage.completion_tokens)
-        price = f'¢{cost * 100:.2f}' if cost >= 1e-4 else ''
+        price = get_formatted_price(get_model_cost(self.config['model'], response.usage))
 
         # show_plugins_used = len(plugins_used) > 0 and self.config['show_plugins_used']
         # plugin_names = tuple(self.plugin_manager.get_plugin_source_name(plugin) for plugin in plugins_used)
@@ -811,7 +817,7 @@ class OpenAIHelper:
         if self.config['model'] in GPT_4_128K_MODELS:
             return base * 31
         if self.config['model'] in GPT_4O_MODELS:
-            return base * 4
+            return base * 31
         raise NotImplementedError(f"Max tokens for model {self.config['model']} is not implemented yet.")
 
     # https://github.com/openai/openai-cookbook/blob/main/examples/How_to_count_tokens_with_tiktoken.ipynb

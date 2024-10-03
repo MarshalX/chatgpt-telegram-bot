@@ -91,10 +91,7 @@ class ChatGPTTelegramBot:
         # If imaging is enabled, add the "image" command to the list
         if self.config.get('enable_image_generation', False):
             self.commands.append(
-                BotCommand(
-                    command='image',
-                    description='Generate VIVID styled image from prompt (e.g. /image cat)'
-                )
+                BotCommand(command='image', description='Generate VIVID styled image from prompt (e.g. /image cat)')
             )
             self.commands.append(
                 BotCommand(
@@ -376,7 +373,8 @@ class ChatGPTTelegramBot:
             return
 
         image_query = message_text(update.message)
-        if image_query == '':
+
+        if not image_query:
             await update.effective_message.reply_text(
                 message_thread_id=get_forum_thread_id(update),
                 text=localized_text('image_no_prompt', self.config['bot_language']),
@@ -405,6 +403,11 @@ class ChatGPTTelegramBot:
                     raise Exception(
                         f"env variable IMAGE_RECEIVE_MODE has invalid value {self.config['image_receive_mode']}"
                     )
+
+                user_id = update.message.from_user.id
+                if user_id not in self.usage:
+                    self.usage[user_id] = UsageTracker(user_id, update.message.from_user.name)
+
                 # add image request to users usage tracker
                 user_id = update.message.from_user.id
                 self.usage[user_id].add_image_request(image_size, self.config['image_prices'])

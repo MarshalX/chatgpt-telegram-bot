@@ -9,6 +9,7 @@ class ReactionPlugin(Plugin):
     """
     A plugin to respond with a specified emoji reaction
     """
+
     _emojis = [emoji.value for emoji in ReactionEmoji]
     _emojis_set = set(_emojis)
 

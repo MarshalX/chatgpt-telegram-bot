@@ -18,7 +18,7 @@ def message_text(message: Message) -> str:
     Returns the text of a message, excluding any bot commands.
     """
     message_txt = message.text_markdown_v2
-    if message_txt is None:
+    if not message_txt:
         return ''
 
     for _, text in sorted(
@@ -27,7 +27,7 @@ def message_text(message: Message) -> str:
     ):
         message_txt = message_txt.replace(text, '').strip()
 
-    return message_txt if len(message_txt) > 0 else ''
+    return message_txt.strip()
 
 
 async def is_user_in_group(update: Update, context: CallbackContext, user_id: int) -> bool:
@@ -207,6 +207,7 @@ def is_admin(config, user_id: int, log_no_admin=False) -> bool:
         return True
 
     return False
+
 
 def has_image_gen_permission(config, user_id: int) -> bool:
     if config['img_gen_access_user_ids'] == '-':
