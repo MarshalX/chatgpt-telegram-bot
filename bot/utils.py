@@ -10,6 +10,7 @@ from typing import Callable, Optional
 import telegram
 from telegram import ChatMember, Message, MessageEntity, Update, constants
 from telegram.ext import CallbackContext, ContextTypes
+from telegram.helpers import escape_markdown
 from usage_tracker import UsageTracker
 
 
@@ -25,7 +26,7 @@ def message_text(message: Message) -> str:
         message.parse_entities([MessageEntity.BOT_COMMAND]).items(),
         key=(lambda item: item[0].offset),
     ):
-        message_txt = message_txt.replace(text, '').strip()
+        message_txt = message_txt.replace(escape_markdown(text, version=2), '').strip()
 
     return message_txt.strip()
 
