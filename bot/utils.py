@@ -82,6 +82,15 @@ def is_group_chat(update: Update) -> bool:
     ]
 
 
+def is_private_chat(update: Update) -> bool:
+    """
+    Checks if the message was sent from a private chat
+    """
+    if not update.effective_chat:
+        return False
+    return update.effective_chat.type == constants.ChatType.PRIVATE
+
+
 def split_into_chunks(text: str, chunk_size: int = 4096) -> list[str]:
     """
     Splits a string into chunks of a given size.

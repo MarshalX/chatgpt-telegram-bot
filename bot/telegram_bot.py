@@ -49,6 +49,7 @@ from utils import (
     is_allowed,
     is_direct_result,
     is_group_chat,
+    is_private_chat,
     is_within_budget,
     message_text,
     split_into_chunks,
@@ -129,6 +130,10 @@ class ChatGPTTelegramBot:
         m = update.effective_message
         if not m:
             raise ValueError('No message found in update')
+
+        if is_private_chat(update):
+            return f'{c}'
+
         if not m.reply_to_message:
             return f'{c}_{m.id}'
 
@@ -145,6 +150,7 @@ class ChatGPTTelegramBot:
         m = update.effective_message
         if not m:
             raise ValueError('No message found in update')
+
         if not m.reply_to_message:
             return m.id
 
@@ -157,6 +163,9 @@ class ChatGPTTelegramBot:
         return self.replies_tracker[m.id]
 
     def save_reply(self, msg: Message, update: Update):
+        if is_private_chat(update):
+            return
+
         self.replies_tracker[msg.message_id] = self.get_real_thread_id(update)
 
     async def help(self, update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
