@@ -15,11 +15,11 @@ from openai.types import CompletionUsage
 from openai.types.chat import ChatCompletionMessageParam
 from PIL import Image
 from plugin_manager import PluginManager
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from utils import decode_image, encode_image, is_direct_result
 
 # Models can be found here: https://platform.openai.com/docs/models/overview
-# Models gpt-3.5-turbo-0613 and  gpt-3.5-turbo-16k-0613 will be deprecated on June 13, 2024
+# Models gpt-3.5-turbo-0613 and gpt-3.5-turbo-16k-0613 will be deprecated on June 13, 2024
 GPT_3_MODELS = ('gpt-3.5-turbo', 'gpt-3.5-turbo-0301', 'gpt-3.5-turbo-0613')
 GPT_3_16K_MODELS = (
     'gpt-3.5-turbo-16k',
@@ -29,7 +29,11 @@ GPT_3_16K_MODELS = (
 )
 GPT_4_MODELS = ('gpt-4', 'gpt-4-0314', 'gpt-4-0613', 'gpt-4-turbo-preview')
 GPT_4_32K_MODELS = ('gpt-4-32k', 'gpt-4-32k-0314', 'gpt-4-32k-0613')
-GPT_4_VISION_MODELS = ('gpt-4-vision-preview', 'gpt-4o', 'gpt-4o-mini')
+GPT_4_VISION_MODELS = (
+    'gpt-4-vision-preview',
+    'gpt-4o',
+    'gpt-4o-mini',
+)
 GPT_4_128K_MODELS = (
     'gpt-4-1106-preview',
     'gpt-4-0125-preview',
@@ -43,6 +47,12 @@ GPT_4O_MODELS = (
     'gpt-4o-2024-08-06',
     'gpt-4o-2024-05-13',
     'gpt-4o-mini-2024-07-18',
+    'gpt-4o-search-preview',
+    'gpt-4o-mini-search-preview',
+)
+GPT_SEARCH_MODELS = (
+    'gpt-4o-search-preview',
+    'gpt-4o-mini-search-preview',
 )
 GPT_ALL_MODELS = (
     GPT_3_MODELS
@@ -98,10 +108,12 @@ def are_functions_available(model: str) -> bool:
         'gpt-4-turbo-preview',
     ):
         return datetime.date.today() > datetime.date(2023, 6, 27)
-    # Models gpt-3.5-turbo-0613 and  gpt-3.5-turbo-16k-0613 will be deprecated on June 13, 2024
+    # Models gpt-3.5-turbo-0613 and gpt-3.5-turbo-16k-0613 will be deprecated on June 13, 2024
     if model in ('gpt-3.5-turbo-0613', 'gpt-3.5-turbo-16k-0613'):
         return datetime.date.today() < datetime.date(2024, 6, 13)
     if model == 'gpt-4-vision-preview':
+        return False
+    if model in GPT_SEARCH_MODELS:
         return False
     return True
 
@@ -114,6 +126,8 @@ _MODELS_COST = {
     'gpt-4o': (2.5, 10),
     'gpt-4o-mini': (0.15, 0.6),
     'gpt-4o-mini-2024-07-18': (0.15, 0.6),
+    'gpt-4o-search-preview': (0.15, 0.6),
+    'gpt-4o-mini-search-preview': (0.15, 0.6),
 }
 _DEFAULT_MODEL_PRICE = (0, 0)
 
@@ -259,7 +273,27 @@ class OpenAIHelper:
                 answer += content
                 answer += '\n\n'
         else:
-            answer = response.choices[0].message.content.strip()
+            message = response.choices[0].message
+            answer = message.content.strip()
+
+            if self.config['web_search_support_annotations'] and message.annotations:
+                citations = []
+                offset = 0  # Keep track of how much we've shifted the text
+                for i, annotation in enumerate(message.annotations):
+                    start = annotation.url_citation.start_index + offset
+                    end = annotation.url_citation.end_index + offset
+
+                    # Insert citation reference number
+                    citation_text = f'\[{i}]'
+                    answer = answer[:start] + citation_text + answer[end:]
+
+                    # Update offset for next citation
+                    offset += len(citation_text) - (end - start)
+
+                    citations.append(f'- \[{i}] [{annotation.url_citation.title}]({annotation.url_citation.url})')
+                if citations:
+                    answer += '\n\n🌐 References:\n' + '\n'.join(citations)
+
             await self.__add_to_history(chat_id, role='assistant', content=answer)
 
         show_plugins_used = len(plugins_used) > 0 and self.config['show_plugins_used']
@@ -327,9 +361,9 @@ class OpenAIHelper:
 
     @retry(
         reraise=True,
-        retry=retry_if_exception_type(openai.RateLimitError),
-        wait=wait_fixed(20),
-        stop=stop_after_attempt(3),
+        retry=retry_if_exception_type(BaseException),
+        wait=wait_exponential_jitter(),
+        stop=stop_after_attempt(5),
     )
     async def __common_get_chat_response(self, chat_id: str, query: str, stream=False):
         """
@@ -372,21 +406,34 @@ class OpenAIHelper:
                 if not self.conversations_vision[chat_id]
                 else self.config['vision_model'],
                 'messages': self.conversations[chat_id],
-                'temperature': self.config['temperature'],
-                'n': self.config['n_choices'],
                 'max_tokens': self.config['max_tokens'],
-                'presence_penalty': self.config['presence_penalty'],
-                'frequency_penalty': self.config['frequency_penalty'],
                 'stream': stream,
             }
+
+            if common_args['model'] not in GPT_SEARCH_MODELS:
+                common_args.update(
+                    {
+                        'n': self.config['n_choices'],
+                        'temperature': self.config['temperature'],
+                        'presence_penalty': self.config['presence_penalty'],
+                        'frequency_penalty': self.config['frequency_penalty'],
+                    }
+                )
+
             if stream:
                 common_args['stream_options'] = {'include_usage': True}
+
+            if common_args['model'] in GPT_SEARCH_MODELS:
+                common_args['web_search_options'] = {
+                    'search_context_size': self.config['web_search_context_size'],
+                }
 
             if self.config['enable_functions'] and not self.conversations_vision[chat_id]:
                 functions = self.plugin_manager.get_functions_specs()
                 if len(functions) > 0:
                     common_args['functions'] = functions
                     common_args['function_call'] = 'auto'
+
             return await self.client.chat.completions.create(**common_args)
 
         except openai.RateLimitError as e:
@@ -440,7 +487,7 @@ class OpenAIHelper:
             await self.__add_function_call_to_history(
                 chat_id=chat_id,
                 function_name=function_name,
-                content=json.dumps({'result': 'Done, the content has been sent' 'to the user.'}),
+                content=json.dumps({'result': 'Done, the content has been sent to the user.'}),
             )
             return function_response, plugins_used
 
@@ -526,9 +573,9 @@ class OpenAIHelper:
 
     @retry(
         reraise=True,
-        retry=retry_if_exception_type(openai.RateLimitError),
-        wait=wait_fixed(20),
-        stop=stop_after_attempt(3),
+        retry=retry_if_exception_type(BaseException),
+        wait=wait_exponential_jitter(),
+        stop=stop_after_attempt(5),
     )
     async def __common_get_chat_response_vision(self, chat_id: int, content: list, stream=False):
         """

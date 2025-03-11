@@ -14,6 +14,7 @@ from plugins.wolfram_alpha import WolframAlphaPlugin
 from plugins.worldtimeapi import WorldTimeApiPlugin
 from plugins.youtube_audio_extractor import YouTubeAudioExtractorPlugin
 from plugins.youtube_transcript import YoutubeTranscriptPlugin
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 
 class PluginManager:
@@ -55,7 +56,19 @@ class PluginManager:
         """
         return [spec for specs in map(lambda plugin: plugin.get_spec(), self.plugins) for spec in specs]
 
+    @retry(
+        reraise=True,
+        retry=retry_if_exception_type(BaseException),
+        wait=wait_exponential_jitter(),
+        stop=stop_after_attempt(5),
+    )
     async def call_function(self, function_name, helper, arguments) -> Dict:
+        try:
+            return await self.__call_function(function_name, helper, arguments)
+        except:
+            return {'error': f'Error calling function {function_name}'}
+
+    async def __call_function(self, function_name, helper, arguments) -> Dict:
         """
         Call a function based on the name and parameters provided
         """

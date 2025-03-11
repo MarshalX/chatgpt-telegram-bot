@@ -27,29 +27,26 @@ class IpLocationPlugin(Plugin):
         ]
 
     async def execute(self, function_name, helper, **kwargs) -> Dict:
-        try:
-            ip = kwargs.get('ip')
-            if not ip:
-                return {'Error': 'IP address not provided'}
+        ip = kwargs.get('ip')
+        if not ip:
+            return {'Error': 'IP address not provided'}
 
-            url = f'https://api.ip.fm/?ip={ip}'
+        url = f'https://api.ip.fm/?ip={ip}'
 
-            async with httpx.AsyncClient() as client:
-                response = (await client.get(url)).json()
+        async with httpx.AsyncClient() as client:
+            response = (await client.get(url)).json()
 
-            country = response.get('data', {}).get('country', 'None')
-            subdivisions = response.get('data', {}).get('subdivisions', 'None')
-            city = response.get('data', {}).get('city', 'None')
-            location = ', '.join(filter(None, [country, subdivisions, city])) or 'None'
+        country = response.get('data', {}).get('country', 'None')
+        subdivisions = response.get('data', {}).get('subdivisions', 'None')
+        city = response.get('data', {}).get('city', 'None')
+        location = ', '.join(filter(None, [country, subdivisions, city])) or 'None'
 
-            asn = response.get('data', {}).get('asn', 'None')
-            as_name = response.get('data', {}).get('as_name', 'None')
-            as_domain = response.get('data', {}).get('as_domain', 'None')
-            return {
-                'Location': location,
-                'ASN': asn,
-                'AS Name': as_name,
-                'AS Domain': as_domain,
-            }
-        except Exception as e:
-            return {'Error': str(e)}
+        asn = response.get('data', {}).get('asn', 'None')
+        as_name = response.get('data', {}).get('as_name', 'None')
+        as_domain = response.get('data', {}).get('as_domain', 'None')
+        return {
+            'Location': location,
+            'ASN': asn,
+            'AS Name': as_name,
+            'AS Domain': as_domain,
+        }

@@ -28,19 +28,17 @@ class WebsiteContentPlugin(Plugin):
         ]
 
     async def execute(self, function_name, helper, **kwargs) -> Dict:
-        try:
-            url = kwargs.get('url')
-            if not url:
-                return {'result': 'URL not provided'}
+        url = kwargs.get('url')
+        if not url:
+            return {'error': 'URL not provided'}
 
-            async with httpx.AsyncClient() as client:
-                response = (await client.get(url)).content
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url)
 
-            doc = readability.Document(response)
+        response.raise_for_status()
+        doc = readability.Document(response.content)
 
-            return {
-                'title': doc.title(),
-                'summary': doc.summary(),
-            }
-        except Exception as e:
-            return {'error': 'An unexpected error occurred: ' + str(e)}
+        return {
+            'title': doc.title(),
+            'summary': doc.summary(),
+        }

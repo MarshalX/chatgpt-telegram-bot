@@ -38,23 +38,19 @@ class WebshotPlugin(Plugin):
         return ''.join(random.choice(characters) for _ in range(length))
 
     async def execute(self, function_name, helper, **kwargs) -> Dict:
-        try:
-            image_url = f'https://image.thum.io/get/maxAge/12/width/720/{kwargs["url"]}'
+        image_url = f'https://image.thum.io/get/maxAge/12/width/720/{kwargs["url"]}'
 
-            async with httpx.AsyncClient() as client:
-                await client.get(image_url)
+        async with httpx.AsyncClient() as client:
+            await client.get(image_url)
 
-                # download the actual image
-                response = await client.get(image_url, timeout=30)
+            # download the actual image
+            response = await client.get(image_url, timeout=30)
 
-            if response.status_code == 200:
-                return {
-                    'direct_result': {
-                        'kind': 'photo',
-                        'value': response.content,
-                    }
-                }
-            else:
-                return {'result': 'Unable to screenshot website'}
-        except:
-            return {'result': 'Unable to screenshot website'}
+        response.raise_for_status()
+
+        return {
+            'direct_result': {
+                'kind': 'photo',
+                'value': response.content,
+            }
+        }

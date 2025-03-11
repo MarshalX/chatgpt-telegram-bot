@@ -30,8 +30,5 @@ class AutoTextToSpeech(Plugin):
         ]
 
     async def execute(self, function_name, helper, **kwargs) -> Dict:
-        try:
-            data, _ = await helper.generate_speech(text=kwargs['text'])
-            return {'direct_result': {'kind': 'voice', 'value': data}}
-        except Exception as e:
-            return {'Result': 'Exception: ' + str(e)}
+        data, _ = await helper.generate_speech(text=kwargs['text'])
+        return {'direct_result': {'kind': 'voice', 'value': data}}

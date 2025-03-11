@@ -145,6 +145,7 @@ async def edit_message_with_retry(
             inline_message_id=message_id if is_inline else None,
             text=text,
             parse_mode=constants.ParseMode.MARKDOWN if markdown else None,
+            disable_web_page_preview=True,
         )
     except telegram.error.BadRequest as e:
         if str(e).startswith('Message is not modified'):

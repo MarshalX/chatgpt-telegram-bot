@@ -443,7 +443,11 @@ class ChatGPTTelegramBot:
             return
 
         tts_query = message_text(update.message)
-        if tts_query == '':
+        if update.message.reply_to_message and update.message.reply_to_message.text:
+            reply_text = message_text(update.message.reply_to_message)
+            tts_query = f'{reply_text} {tts_query}'.strip()
+
+        if not tts_query:
             await update.effective_message.reply_text(
                 message_thread_id=get_forum_thread_id(update),
                 text=localized_text('tts_no_prompt', self.config['bot_language']),
@@ -595,6 +599,7 @@ class ChatGPTTelegramBot:
                             reply_to_message_id=get_reply_to_message_id(self.config, update) if index == 0 else None,
                             text=transcript_chunk,
                             parse_mode=constants.ParseMode.MARKDOWN,
+                            disable_web_page_preview=True,
                         )
                         self.save_reply(sent_msg, update)
 
@@ -1011,6 +1016,7 @@ class ChatGPTTelegramBot:
                                 else None,
                                 text=chunk,
                                 parse_mode=constants.ParseMode.MARKDOWN,
+                                disable_web_page_preview=True,
                             )
                             self.save_reply(sent_msg, update)
                         except Exception:
@@ -1021,6 +1027,7 @@ class ChatGPTTelegramBot:
                                     if index == 0
                                     else None,
                                     text=chunk,
+                                    disable_web_page_preview=True,
                                 )
                                 self.save_reply(sent_msg, update)
                             except Exception as exception:

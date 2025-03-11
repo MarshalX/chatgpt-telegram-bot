@@ -33,16 +33,13 @@ class YoutubeTranscriptPlugin(Plugin):
         ]
 
     async def execute(self, function_name, helper, **kwargs) -> Dict:
-        try:
-            video_id = kwargs.get('video_id')
-            if not video_id:
-                return {'result': 'Video ID not provided'}
+        video_id = kwargs.get('video_id')
+        if not video_id:
+            return {'error': 'Video ID not provided'}
 
-            transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=['en', 'ru', 'pl'])
-            json_transcript = JSONFormatter().format_transcript(transcript)
+        transcript = YouTubeTranscriptApi().fetch(video_id, languages=['en', 'ru', 'pl'])
+        json_transcript = JSONFormatter().format_transcript(transcript)
 
-            return {
-                'transcript': json_transcript,
-            }
-        except Exception as e:
-            return {'error': 'An unexpected error occurred: ' + str(e)}
+        return {
+            'transcript': json_transcript,
+        }

@@ -2,7 +2,7 @@ import logging
 import os
 
 from dotenv import load_dotenv
-from openai_helper import OpenAIHelper, are_functions_available, default_max_tokens
+from openai_helper import GPT_SEARCH_MODELS, OpenAIHelper, are_functions_available, default_max_tokens
 from plugin_manager import PluginManager
 from telegram_bot import ChatGPTTelegramBot
 
@@ -16,6 +16,7 @@ def main():
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         level=logging.INFO,
     )
+    # logging.getLogger('openai._base_client').setLevel(logging.DEBUG)
     logging.getLogger('httpx').setLevel(logging.WARNING)
 
     # Check if the required environment variables are set
@@ -26,7 +27,7 @@ def main():
         exit(1)
 
     # Setup configurations
-    model = os.environ.get('OPENAI_MODEL', 'gpt-3.5-turbo')
+    model = os.environ.get('OPENAI_MODEL', 'gpt-4o-mini')
     functions_available = are_functions_available(model=model)
     max_tokens_default = default_max_tokens(model=model)
     openai_config = {
@@ -61,6 +62,8 @@ def main():
         'tts_model': os.environ.get('TTS_MODEL', 'tts-1'),
         'tts_voice': os.environ.get('TTS_VOICE', 'alloy'),
         'allowed_chat_ids_to_track': set(os.environ.get('ALLOWED_CHAT_IDS_TO_TRACK', '').split(',')),
+        'web_search_context_size': os.environ.get('WEB_SEARCH_CONTEXT_SIZE', 'medium'),
+        'web_search_support_annotations': os.environ.get('WEB_SEARCH_SUPPORT_ANNOTATIONS', 'true').lower() == 'true',
     }
 
     if openai_config['enable_functions'] and not functions_available:
@@ -110,6 +113,11 @@ def main():
         'bot_language': os.environ.get('BOT_LANGUAGE', 'en'),
         'database_url': os.environ.get('DATABASE_URL_TO_DROP_ALL_TABLES'),
     }
+
+    if model in GPT_SEARCH_MODELS and openai_config['web_search_support_annotations']:
+        # annotations are not supported in streaming mode
+        openai_config['stream'] = False
+        telegram_config['stream'] = False
 
     plugin_config = {'plugins': os.environ.get('PLUGINS', '').split(',')}
 

@@ -27,10 +27,7 @@ class WhoisPlugin(Plugin):
         ]
 
     async def execute(self, function_name, helper, **kwargs) -> Dict:
-        try:
-            whois_result = whois.query(kwargs['domain'])
-            if whois_result is None:
-                return {'result': 'No such domain found'}
-            return whois_result.__dict__
-        except Exception as e:
-            return {'error': 'An unexpected error occurred: ' + str(e)}
+        whois_result = whois.query(kwargs['domain'])
+        if whois_result is None:
+            return {'result': 'No such domain found'}
+        return whois_result.__dict__
