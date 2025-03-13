@@ -61,7 +61,7 @@ class PluginManager:
         reraise=True,
         retry=retry_if_exception_type(BaseException),
         wait=wait_exponential_jitter(),
-        stop=stop_after_attempt(5),
+        stop=stop_after_attempt(3),
     )
     async def call_function(self, function_name, helper, arguments) -> Dict:
         try:
