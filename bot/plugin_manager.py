@@ -1,4 +1,5 @@
 import json
+import logging
 from typing import Dict
 
 from plugins.auto_tts import AutoTextToSpeech
@@ -65,7 +66,8 @@ class PluginManager:
     async def call_function(self, function_name, helper, arguments) -> Dict:
         try:
             return await self.__call_function(function_name, helper, arguments)
-        except:
+        except Exception as e:
+            logging.error(f'Error calling function {function_name}:', exc_info=e)
             return {'error': f'Error calling function {function_name}'}
 
     async def __call_function(self, function_name, helper, arguments) -> Dict:
