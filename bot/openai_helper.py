@@ -126,7 +126,7 @@ _MODELS_COST = {
     'gpt-4o': (2.5, 10),
     'gpt-4o-mini': (0.15, 0.6),
     'gpt-4o-mini-2024-07-18': (0.15, 0.6),
-    'gpt-4o-search-preview': (0.15, 0.6),
+    'gpt-4o-search-preview': (2.5, 10),
     'gpt-4o-mini-search-preview': (0.15, 0.6),
 }
 _DEFAULT_MODEL_PRICE = (0, 0)
