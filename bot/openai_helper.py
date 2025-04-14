@@ -33,6 +33,9 @@ GPT_4_VISION_MODELS = (
     'gpt-4-vision-preview',
     'gpt-4o',
     'gpt-4o-mini',
+    'gpt-4.1',
+    'gpt-4.1-mini',
+    'gpt-4.1-nano',
 )
 GPT_4_128K_MODELS = (
     'gpt-4-1106-preview',
@@ -50,6 +53,14 @@ GPT_4O_MODELS = (
     'gpt-4o-search-preview',
     'gpt-4o-mini-search-preview',
 )
+GPT_41_MODELS = (
+    'gpt-4.1',
+    'gpt-4.1-mini',
+    'gpt-4.1-nano',
+    'gpt-4.1-2025-04-14',
+    'gpt-4.1-mini-2025-04-14',
+    'gpt-4.1-nano-2025-04-14',
+)
 GPT_SEARCH_MODELS = (
     'gpt-4o-search-preview',
     'gpt-4o-mini-search-preview',
@@ -62,32 +73,31 @@ GPT_ALL_MODELS = (
     + GPT_4_VISION_MODELS
     + GPT_4_128K_MODELS
     + GPT_4O_MODELS
+    + GPT_41_MODELS
 )
 
 
 def default_max_tokens(model: str) -> int:
     """
-    Gets the default number of max tokens for the given model.
+    Gets the default number of max OUTPUT tokens for the given model.
     :param model: The model name
     :return: The default number of max tokens
     """
-    base = 1200
+    base = 1024
     if model in GPT_3_MODELS:
         return base
     elif model in GPT_4_MODELS:
         return base * 2
     elif model in GPT_3_16K_MODELS:
-        if model == 'gpt-3.5-turbo-1106':
-            return 4096
         return base * 4
     elif model in GPT_4_32K_MODELS:
         return base * 8
-    elif model in GPT_4_VISION_MODELS:
-        return 4096
     elif model in GPT_4_128K_MODELS:
-        return 4096
+        return base * 8
     elif model in GPT_4O_MODELS:
-        return 4096
+        return base * 8
+    elif model in GPT_41_MODELS:
+        return base * 32
 
 
 def are_functions_available(model: str) -> bool:
@@ -128,6 +138,9 @@ _MODELS_COST = {
     'gpt-4o-mini-2024-07-18': (0.15, 0.6),
     'gpt-4o-search-preview': (2.5, 10),
     'gpt-4o-mini-search-preview': (0.15, 0.6),
+    'gpt-4.1': (2, 8),
+    'gpt-4.1-mini': (0.4, 1.6),
+    'gpt-4.1-nano': (0.1, 0.4),
 }
 _DEFAULT_MODEL_PRICE = (0, 0)
 
@@ -859,12 +872,12 @@ class OpenAIHelper:
             return base * 2
         if self.config['model'] in GPT_4_32K_MODELS:
             return base * 8
-        if self.config['model'] in GPT_4_VISION_MODELS:
-            return base * 31
         if self.config['model'] in GPT_4_128K_MODELS:
             return base * 31
         if self.config['model'] in GPT_4O_MODELS:
-            return base * 31
+            return base * 31  # 128K
+        if self.config['model'] in GPT_41_MODELS:
+            return base * 240  # 1M
         raise NotImplementedError(f"Max tokens for model {self.config['model']} is not implemented yet.")
 
     # https://github.com/openai/openai-cookbook/blob/main/examples/How_to_count_tokens_with_tiktoken.ipynb
@@ -876,14 +889,19 @@ class OpenAIHelper:
         """
         model = self.config['model']
         try:
-            encoding = tiktoken.encoding_for_model(model)
+            if model.startswith('gpt-4.1'):
+                # tiktoken is not updated to support 4.1 yet
+                # remove when tiktoken will support it
+                encoding = tiktoken.get_encoding('o200k_base')
+            else:
+                encoding = tiktoken.encoding_for_model(model)
         except KeyError:
             encoding = tiktoken.get_encoding('gpt-3.5-turbo')
 
         if model in GPT_3_MODELS + GPT_3_16K_MODELS:
             tokens_per_message = 4  # every message follows <|start|>{role/name}\n{content}<|end|>\n
             tokens_per_name = -1  # if there's a name, the role is omitted
-        elif model in GPT_4_MODELS + GPT_4_32K_MODELS + GPT_4_VISION_MODELS + GPT_4_128K_MODELS + GPT_4O_MODELS:
+        elif model in GPT_4_MODELS + GPT_4_32K_MODELS + GPT_4_128K_MODELS + GPT_4O_MODELS + GPT_41_MODELS:
             tokens_per_message = 3
             tokens_per_name = 1
         else:
