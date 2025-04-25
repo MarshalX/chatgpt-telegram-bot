@@ -372,6 +372,8 @@ class ChatGPTTelegramBot:
         # ):
         #     return
 
+        bot_language = self.config['bot_language']
+
         if not has_image_gen_permission(self.config, update.message.from_user.id):
             await update.effective_message.reply_text(
                 message_thread_id=get_forum_thread_id(update),
@@ -390,14 +392,42 @@ class ChatGPTTelegramBot:
             )
             return
 
+        reply = update.message.reply_to_message
+        effective_attachment = reply.effective_attachment if reply else None
+        image_to_edit_attachment = image_to_edit = None
+        if isinstance(effective_attachment, Sequence):
+            image_to_edit_attachment = effective_attachment[-1]
+
+        try:
+            if image_to_edit_attachment:
+                media_file = await context.bot.get_file(image_to_edit_attachment.file_id)
+                image_to_edit = io.BytesIO()
+                await media_file.download_to_memory(out=image_to_edit)
+                image_to_edit.seek(0)
+        except Exception as e:
+            logging.exception(e)
+            await update.effective_message.reply_text(
+                message_thread_id=get_forum_thread_id(update),
+                reply_to_message_id=get_reply_to_message_id(self.config, update),
+                text=(
+                    f"{localized_text('media_download_fail', bot_language)[0]}: "
+                    f"{str(e)}. {localized_text('media_download_fail', bot_language)[1]}"
+                ),
+                parse_mode=constants.ParseMode.MARKDOWN,
+            )
+            return
+
+        action_msg = 'EDITING' if image_to_edit else 'GENERATING'
         logging.info(
-            f'New image generation request received from user {update.message.from_user.name} '
+            f'New image {action_msg} request received from user {update.message.from_user.name} '
             f'(id: {update.message.from_user.id})'
         )
 
         async def _generate():
             try:
-                image_bytes, image_size, price = await self.openai.generate_image(prompt=image_query, style=style)
+                image_bytes, image_size, price = await self.openai.generate_image(
+                    prompt=image_query, style=style, image_to_edit=image_to_edit
+                )
                 if self.config['image_receive_mode'] == 'photo':
                     await update.effective_message.reply_photo(
                         reply_to_message_id=get_reply_to_message_id(self.config, update),

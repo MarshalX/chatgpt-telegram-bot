@@ -528,11 +528,14 @@ class OpenAIHelper:
         )
         return await self.__handle_function_call(chat_id, response, stream, times + 1, plugins_used)
 
-    async def generate_image(self, prompt: str, style: Optional[str] = None) -> tuple[bytes, str, str]:
+    async def generate_image(
+        self, prompt: str, style: Optional[str] = None, image_to_edit: Optional[io.BytesIO] = None
+    ) -> tuple[bytes, str, str]:
         """
         Generates an image from the given prompt using DALL·E or GPT model.
         :param prompt: The prompt to send to the model
         :param style: The style to use for the image
+        :param image_to_edit: The image to edit
         :return: The image URL and the image size
         """
         bot_language = self.config['bot_language']
@@ -555,9 +558,14 @@ class OpenAIHelper:
                 'quality': 'low',
                 'size': '1024x1024',
             }
+            if image_to_edit:
+                del generate_kwargs['moderation']
+                generate_kwargs['image'] = ('image_to_edit.jpeg', image_to_edit, 'image/jpeg')
+
+        method = self.client.images.edit if image_to_edit else self.client.images.generate
 
         try:
-            response = await self.client.images.generate(**generate_kwargs)
+            response = await method(**generate_kwargs)
 
             if len(response.data) == 0:
                 logging.error(f'No response from GPT: {str(response)}')
