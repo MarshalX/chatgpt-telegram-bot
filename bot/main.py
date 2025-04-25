@@ -2,7 +2,7 @@ import logging
 import os
 
 from dotenv import load_dotenv
-from openai_helper import GPT_SEARCH_MODELS, OpenAIHelper, are_functions_available, default_max_tokens
+from openai_helper import GPT_SEARCH_MODELS, OpenAIHelper, are_functions_available, default_max_output_tokens
 from plugin_manager import PluginManager
 from telegram_bot import ChatGPTTelegramBot
 
@@ -16,7 +16,7 @@ def main():
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         level=logging.INFO,
     )
-    # logging.getLogger('openai._base_client').setLevel(logging.DEBUG)
+    logging.getLogger('openai._base_client').setLevel(logging.DEBUG)
     logging.getLogger('httpx').setLevel(logging.WARNING)
 
     # Check if the required environment variables are set
@@ -29,22 +29,22 @@ def main():
     # Setup configurations
     model = os.environ.get('OPENAI_MODEL', 'gpt-4.1-mini')
     functions_available = are_functions_available(model=model)
-    max_tokens_default = default_max_tokens(model=model)
+    max_output_tokens_default = default_max_output_tokens(model=model)
     openai_config = {
         'api_key': os.environ['OPENAI_API_KEY'],
-        'show_usage': os.environ.get('SHOW_USAGE', 'false').lower() == 'true',
+        'show_usage': os.environ.get('SHOW_USAGE', 'true').lower() == 'true',
         'stream': os.environ.get('STREAM', 'true').lower() == 'true',
         'proxy': os.environ.get('PROXY', None) or os.environ.get('OPENAI_PROXY', None),
-        'max_history_size': int(os.environ.get('MAX_HISTORY_SIZE', 15)),
-        'max_conversation_age_minutes': int(os.environ.get('MAX_CONVERSATION_AGE_MINUTES', 180)),
+        'max_history_size': int(os.environ.get('MAX_HISTORY_SIZE', 500)),
+        'max_conversation_age_minutes': int(os.environ.get('MAX_CONVERSATION_AGE_MINUTES', 10080)),
         'assistant_prompt': os.environ.get('ASSISTANT_PROMPT', 'You are a helpful assistant.'),
-        'max_tokens': int(os.environ.get('MAX_TOKENS', max_tokens_default)),
+        'max_output_tokens': int(os.environ.get('MAX_OUTPUT_TOKENS', max_output_tokens_default)),
         'n_choices': int(os.environ.get('N_CHOICES', 1)),
         'temperature': float(os.environ.get('TEMPERATURE', 1.0)),
-        'image_model': os.environ.get('IMAGE_MODEL', 'dall-e-2'),
+        'image_model': os.environ.get('IMAGE_MODEL', 'dall-e-3'),
         'image_quality': os.environ.get('IMAGE_QUALITY', 'standard'),
         'image_style': os.environ.get('IMAGE_STYLE', 'vivid'),
-        'image_size': os.environ.get('IMAGE_SIZE', '512x512'),
+        'image_size': os.environ.get('IMAGE_SIZE', '1024x1024'),
         'model': model,
         'enable_functions': os.environ.get('ENABLE_FUNCTIONS', str(functions_available)).lower() == 'true',
         'functions_max_consecutive_calls': int(os.environ.get('FUNCTIONS_MAX_CONSECUTIVE_CALLS', 10)),
@@ -53,14 +53,14 @@ def main():
         'bot_language': os.environ.get('BOT_LANGUAGE', 'en'),
         'show_plugins_used': os.environ.get('SHOW_PLUGINS_USED', 'false').lower() == 'true',
         'whisper_prompt': os.environ.get('WHISPER_PROMPT', ''),
-        'vision_model': os.environ.get('VISION_MODEL', 'gpt-4-vision-preview'),
+        'vision_model': os.environ.get('VISION_MODEL', 'gpt-4.1-mini'),
         'enable_vision_follow_up_questions': os.environ.get('ENABLE_VISION_FOLLOW_UP_QUESTIONS', 'true').lower()
         == 'true',
         'vision_prompt': os.environ.get('VISION_PROMPT', 'What is in this image'),
         'vision_detail': os.environ.get('VISION_DETAIL', 'auto'),
-        'vision_max_tokens': int(os.environ.get('VISION_MAX_TOKENS', '300')),
+        'vision_max_output_tokens': int(os.environ.get('VISION_MAX_OUTPUT_TOKENS', '1024')),
         'tts_model': os.environ.get('TTS_MODEL', 'tts-1'),
-        'tts_voice': os.environ.get('TTS_VOICE', 'alloy'),
+        'tts_voice': os.environ.get('TTS_VOICE', 'nova'),
         'allowed_chat_ids_to_track': set(os.environ.get('ALLOWED_CHAT_IDS_TO_TRACK', '').split(',')),
         'web_search_context_size': os.environ.get('WEB_SEARCH_CONTEXT_SIZE', 'medium'),
         'web_search_support_annotations': os.environ.get('WEB_SEARCH_SUPPORT_ANNOTATIONS', 'true').lower() == 'true',
@@ -107,7 +107,7 @@ def main():
         'image_prices': [float(i) for i in os.environ.get('IMAGE_PRICES', '0.016,0.018,0.02').split(',')],
         'vision_token_price': float(os.environ.get('VISION_TOKEN_PRICE', '0.01')),
         'image_receive_mode': os.environ.get('IMAGE_FORMAT', 'photo'),
-        'tts_model': os.environ.get('TTS_MODEL', 'tts-1'),
+        'tts_model': os.environ.get('TTS_MODEL', 'tts-1-hd'),
         'tts_prices': [float(i) for i in os.environ.get('TTS_PRICES', '0.015,0.030').split(',')],
         'transcription_price': float(os.environ.get('TRANSCRIPTION_PRICE', 0.006)),
         'bot_language': os.environ.get('BOT_LANGUAGE', 'en'),

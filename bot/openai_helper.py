@@ -77,7 +77,7 @@ GPT_ALL_MODELS = (
 )
 
 
-def default_max_tokens(model: str) -> int:
+def default_max_output_tokens(model: str) -> int:
     """
     Gets the default number of max OUTPUT tokens for the given model.
     :param model: The model name
@@ -95,7 +95,7 @@ def default_max_tokens(model: str) -> int:
     elif model in GPT_4_128K_MODELS:
         return base * 8
     elif model in GPT_4O_MODELS:
-        return base * 8
+        return base * 16
     elif model in GPT_41_MODELS:
         return base * 32
 
@@ -396,7 +396,7 @@ class OpenAIHelper:
 
             # Summarize the chat history if it's too long to avoid excessive token usage
             token_count = self.__count_tokens(self.conversations[chat_id])
-            exceeded_max_tokens = token_count + self.config['max_tokens'] > self.__max_model_tokens()
+            exceeded_max_tokens = token_count + self.config['max_output_tokens'] > self.__max_model_tokens()
             exceeded_max_history_size = len(self.conversations[chat_id]) > self.config['max_history_size']
 
             if exceeded_max_tokens or exceeded_max_history_size:
@@ -419,7 +419,7 @@ class OpenAIHelper:
                 if not self.conversations_vision[chat_id]
                 else self.config['vision_model'],
                 'messages': self.conversations[chat_id],
-                'max_tokens': self.config['max_tokens'],
+                'max_tokens': self.config['max_output_tokens'],
                 'stream': stream,
             }
 
@@ -620,7 +620,7 @@ class OpenAIHelper:
 
             # Summarize the chat history if it's too long to avoid excessive token usage
             token_count = self.__count_tokens(self.conversations[chat_id])
-            exceeded_max_tokens = token_count + self.config['max_tokens'] > self.__max_model_tokens()
+            exceeded_max_tokens = token_count + self.config['max_output_tokens'] > self.__max_model_tokens()
             exceeded_max_history_size = len(self.conversations[chat_id]) > self.config['max_history_size']
 
             if exceeded_max_tokens or exceeded_max_history_size:
@@ -645,7 +645,7 @@ class OpenAIHelper:
                 'messages': self.conversations[chat_id][:-1] + [message],
                 'temperature': self.config['temperature'],
                 'n': 1,  # several choices is not implemented yet
-                'max_tokens': self.config['vision_max_tokens'],
+                'max_tokens': self.config['vision_max_output_tokens'],
                 'presence_penalty': self.config['presence_penalty'],
                 'frequency_penalty': self.config['frequency_penalty'],
                 'stream': stream,
