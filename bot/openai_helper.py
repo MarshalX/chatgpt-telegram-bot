@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import base64
 import datetime
 import io
 import json
 import logging
 import os
-from typing import Optional, TypedDict
+from typing import Optional, TypedDict, Union
 
 import httpx
 import openai
@@ -13,6 +14,7 @@ import tiktoken
 from openai._utils import async_maybe_transform
 from openai.types import CompletionUsage
 from openai.types.chat import ChatCompletionMessageParam
+from openai.types.images_response import Usage
 from PIL import Image
 from plugin_manager import PluginManager
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
@@ -141,17 +143,25 @@ _MODELS_COST = {
     'gpt-4.1': (2, 8),
     'gpt-4.1-mini': (0.4, 1.6),
     'gpt-4.1-nano': (0.1, 0.4),
+    'gpt-image-1': (5, 40),
 }
 _DEFAULT_MODEL_PRICE = (0, 0)
 
 
-def get_model_cost(model: str, usage: CompletionUsage) -> float:
+def get_model_cost(model: str, usage: Union[Usage, CompletionUsage]) -> float:
     input_price_per_m, output_price_per_m = _MODELS_COST.get(model, _DEFAULT_MODEL_PRICE)
 
     input_price = input_price_per_m / 1_000_000
     output_price = output_price_per_m / 1_000_000
 
-    return (input_price * usage.prompt_tokens) + (output_price * usage.completion_tokens)
+    if isinstance(usage, Usage):
+        input_token = usage.input_tokens
+        output_token = usage.output_tokens
+    else:
+        input_token = usage.prompt_tokens
+        output_token = usage.completion_tokens
+
+    return (input_price * input_token) + (output_price * output_token)
 
 
 def get_formatted_price(cost: float) -> str:
@@ -518,23 +528,36 @@ class OpenAIHelper:
         )
         return await self.__handle_function_call(chat_id, response, stream, times + 1, plugins_used)
 
-    async def generate_image(self, prompt: str, style: Optional[str] = None) -> tuple[str, str]:
+    async def generate_image(self, prompt: str, style: Optional[str] = None) -> tuple[bytes, str, str]:
         """
-        Generates an image from the given prompt using DALL·E model.
+        Generates an image from the given prompt using DALL·E or GPT model.
         :param prompt: The prompt to send to the model
         :param style: The style to use for the image
         :return: The image URL and the image size
         """
         bot_language = self.config['bot_language']
+        image_model = self.config['image_model']
+
+        generate_kwargs = {
+            'prompt': prompt,
+            'model': image_model,
+            'quality': self.config['image_quality'],
+            'style': style or self.config['image_style'],
+            'size': self.config['image_size'],
+            'response_format': 'b64_json',
+        }
+        if image_model.startswith('gpt'):
+            generate_kwargs = {
+                'prompt': prompt,
+                'model': image_model,
+                # TODO: move to config
+                'moderation': 'low',
+                'quality': 'low',
+                'size': '1024x1024',
+            }
+
         try:
-            response = await self.client.images.generate(
-                prompt=prompt,
-                n=1,
-                model=self.config['image_model'],
-                quality=self.config['image_quality'],
-                style=style or self.config['image_style'],
-                size=self.config['image_size'],
-            )
+            response = await self.client.images.generate(**generate_kwargs)
 
             if len(response.data) == 0:
                 logging.error(f'No response from GPT: {str(response)}')
@@ -542,7 +565,15 @@ class OpenAIHelper:
                     f"⚠️ _{localized_text('error', bot_language)}._ " f"⚠️\n{localized_text('try_again', bot_language)}."
                 )
 
-            return response.data[0].url, self.config['image_size']
+            image_base64 = response.data[0].b64_json
+            image_bytes = base64.b64decode(image_base64)
+
+            price = ''
+            if response.usage:
+                cost = get_model_cost(image_model, response.usage)
+                price = get_formatted_price(cost)
+
+            return image_bytes, self.config['image_size'], price
         except Exception as e:
             raise Exception(f"⚠️ _{localized_text('error', bot_language)}._ ⚠️\n{str(e)}") from e
 

@@ -397,16 +397,18 @@ class ChatGPTTelegramBot:
 
         async def _generate():
             try:
-                image_url, image_size = await self.openai.generate_image(prompt=image_query, style=style)
+                image_bytes, image_size, price = await self.openai.generate_image(prompt=image_query, style=style)
                 if self.config['image_receive_mode'] == 'photo':
                     await update.effective_message.reply_photo(
                         reply_to_message_id=get_reply_to_message_id(self.config, update),
-                        photo=image_url,
+                        photo=image_bytes,
+                        caption=price,
                     )
                 elif self.config['image_receive_mode'] == 'document':
                     await update.effective_message.reply_document(
                         reply_to_message_id=get_reply_to_message_id(self.config, update),
-                        document=image_url,
+                        document=image_bytes,
+                        caption=price,
                     )
                 else:
                     raise Exception(
