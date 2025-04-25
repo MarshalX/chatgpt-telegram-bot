@@ -123,6 +123,7 @@ class ChatGPTTelegramBot:
         self.usage = {}
         self.last_message = {}
         self.inline_queries_cache = {}
+        self.image_prompts_cache = {}  # Cache for storing image prompts
         self.replies_tracker = {}
 
     def get_thread_id(self, update: Update) -> str:
@@ -425,20 +426,32 @@ class ChatGPTTelegramBot:
 
         async def _generate():
             try:
+                # Generate low quality image
                 image_bytes, image_size, price = await self.openai.generate_image(
                     prompt=image_query, style=style, image_to_edit=image_to_edit
                 )
+
+                # Store prompt in cache with unique ID
+                prompt_id = str(uuid4())
+                self.image_prompts_cache[prompt_id] = image_query
+
+                # Create inline keyboard with improve quality button
+                keyboard = [[InlineKeyboardButton('🖼️ Improve Quality', callback_data=f'improve_quality:{prompt_id}')]]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+
                 if self.config['image_receive_mode'] == 'photo':
                     await update.effective_message.reply_photo(
                         reply_to_message_id=get_reply_to_message_id(self.config, update),
                         photo=image_bytes,
                         caption=price,
+                        reply_markup=reply_markup,
                     )
                 elif self.config['image_receive_mode'] == 'document':
                     await update.effective_message.reply_document(
                         reply_to_message_id=get_reply_to_message_id(self.config, update),
                         document=image_bytes,
                         caption=price,
+                        reply_markup=reply_markup,
                     )
                 else:
                     raise Exception(
@@ -463,6 +476,66 @@ class ChatGPTTelegramBot:
                     reply_to_message_id=get_reply_to_message_id(self.config, update),
                     text=f"{localized_text('image_fail', self.config['bot_language'])}: {str(e)}",
                     parse_mode=constants.ParseMode.MARKDOWN,
+                )
+
+        await wrap_with_indicator(update, context, _generate, constants.ChatAction.UPLOAD_PHOTO)
+
+    async def handle_improve_quality(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """
+        Handles the improve quality button callback
+        """
+        query = update.callback_query
+        await query.answer()
+
+        if not has_image_gen_permission(self.config, query.from_user.id):
+            return
+
+        # Extract prompt ID from callback data
+        prompt_id = query.data.split(':', 1)[1]
+
+        # Retrieve prompt from cache
+        if prompt_id not in self.image_prompts_cache:
+            await update.effective_message.reply_text('Sorry, the prompt is no longer available.')
+            return
+
+        prompt = self.image_prompts_cache[prompt_id]
+
+        async def _generate():
+            try:
+                # Generate medium quality image
+                image_bytes, image_size, price = await self.openai.generate_image(prompt=prompt, quality='medium')
+
+                if self.config['image_receive_mode'] == 'photo':
+                    await context.bot.send_photo(
+                        chat_id=query.message.chat_id,
+                        photo=image_bytes,
+                        caption=price,
+                        reply_to_message_id=query.message.message_id,
+                    )
+                elif self.config['image_receive_mode'] == 'document':
+                    await context.bot.send_document(
+                        chat_id=query.message.chat_id,
+                        document=image_bytes,
+                        caption=price,
+                        reply_to_message_id=query.message.message_id,
+                    )
+
+                user_id = query.from_user.id
+                if user_id not in self.usage:
+                    self.usage[user_id] = UsageTracker(user_id, query.from_user.name)
+
+                # add image request to users usage tracker
+                self.usage[user_id].add_image_request(image_size, self.config['image_prices'])
+                # add guest chat request to guest usage tracker
+                if str(user_id) not in self.config['allowed_user_ids'].split(',') and 'guests' in self.usage:
+                    self.usage['guests'].add_image_request(image_size, self.config['image_prices'])
+
+            except Exception as e:
+                logging.exception(e)
+                await context.bot.send_message(
+                    chat_id=query.message.chat_id,
+                    text=f'Failed to improve image quality: {str(e)}',
+                    reply_to_message_id=query.message.message_id,
                 )
 
         await wrap_with_indicator(update, context, _generate, constants.ChatAction.UPLOAD_PHOTO)
@@ -1406,6 +1479,7 @@ class ChatGPTTelegramBot:
             )
         )
         application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), self.prompt))
+        application.add_handler(CallbackQueryHandler(self.handle_improve_quality, pattern='^improve_quality:'))
         application.add_handler(
             InlineQueryHandler(
                 self.inline_query,
