@@ -143,25 +143,34 @@ _MODELS_COST = {
     'gpt-4.1': (2, 8),
     'gpt-4.1-mini': (0.4, 1.6),
     'gpt-4.1-nano': (0.1, 0.4),
-    'gpt-image-1': (5, 40),
+    'gpt-image-1': (5, 40, 10),  # text input, image output, input image
 }
 _DEFAULT_MODEL_PRICE = (0, 0)
 
 
 def get_model_cost(model: str, usage: Union[Usage, CompletionUsage]) -> float:
-    input_price_per_m, output_price_per_m = _MODELS_COST.get(model, _DEFAULT_MODEL_PRICE)
+    input_price_per_m, output_price_per_m, *extra_prices = _MODELS_COST.get(model, _DEFAULT_MODEL_PRICE)
 
     input_price = input_price_per_m / 1_000_000
     output_price = output_price_per_m / 1_000_000
 
+    extra_total = 0
     if isinstance(usage, Usage):
-        input_token = usage.input_tokens
-        output_token = usage.output_tokens
-    else:
-        input_token = usage.prompt_tokens
-        output_token = usage.completion_tokens
+        input_tokens = usage.input_tokens
+        output_tokens = usage.output_tokens
 
-    return (input_price * input_token) + (output_price * output_token)
+        if usage.input_tokens_details:
+            input_tokens = usage.input_tokens_details.text_tokens
+
+            (input_image_price_per_m,) = extra_prices
+            input_image_price = input_image_price_per_m / 1_000_000
+            input_image_tokens = usage.input_tokens_details.image_tokens
+            extra_total = input_image_price * input_image_tokens
+    else:
+        input_tokens = usage.prompt_tokens
+        output_tokens = usage.completion_tokens
+
+    return (input_price * input_tokens) + (output_price * output_tokens) + extra_total
 
 
 def get_formatted_price(cost: float) -> str:
