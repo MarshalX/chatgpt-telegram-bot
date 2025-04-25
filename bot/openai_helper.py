@@ -564,8 +564,8 @@ class OpenAIHelper:
                 'model': image_model,
                 # TODO: move to config
                 'moderation': 'low',
-                'quality': 'low',
-                'size': '1024x1024',
+                'quality': self.config['image_quality'],
+                'size': self.config['image_size'],
             }
             if image_to_edit:
                 del generate_kwargs['moderation']
