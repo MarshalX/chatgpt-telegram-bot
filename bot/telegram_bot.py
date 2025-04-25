@@ -436,7 +436,13 @@ class ChatGPTTelegramBot:
                 self.image_prompts_cache[prompt_id] = image_query
 
                 # Create inline keyboard with improve quality button
-                keyboard = [[InlineKeyboardButton('🖼️ Improve Quality', callback_data=f'improve_quality:{prompt_id}')]]
+                keyboard = [
+                    [
+                        InlineKeyboardButton(
+                            '🖼️ Improve to Medium Quality', callback_data=f'improve_quality:{prompt_id}:medium'
+                        )
+                    ]
+                ]
                 reply_markup = InlineKeyboardMarkup(keyboard)
 
                 if self.config['image_receive_mode'] == 'photo':
@@ -490,8 +496,10 @@ class ChatGPTTelegramBot:
         if not has_image_gen_permission(self.config, query.from_user.id):
             return
 
-        # Extract prompt ID from callback data
-        prompt_id = query.data.split(':', 1)[1]
+        # Extract prompt ID and target quality from callback data
+        parts = query.data.split(':')
+        prompt_id = parts[1]
+        target_quality = parts[2]
 
         # Retrieve prompt from cache
         if prompt_id not in self.image_prompts_cache:
@@ -503,7 +511,21 @@ class ChatGPTTelegramBot:
         async def _generate():
             try:
                 # Generate medium quality image
-                image_bytes, image_size, price = await self.openai.generate_image(prompt=prompt, quality='medium')
+                # Determine quality parameter based on target quality
+                quality_param = 'high' if target_quality == 'high' else 'medium'
+                image_bytes, image_size, price = await self.openai.generate_image(prompt=prompt, quality=quality_param)
+
+                # Update the message with new button if quality can be improved further
+                reply_markup = None
+                if target_quality == 'medium':
+                    keyboard = [
+                        [
+                            InlineKeyboardButton(
+                                '🖼️ Improve to High Quality', callback_data=f'improve_quality:{prompt_id}:high'
+                            )
+                        ]
+                    ]
+                    reply_markup = InlineKeyboardMarkup(keyboard)
 
                 if self.config['image_receive_mode'] == 'photo':
                     await context.bot.send_photo(
@@ -511,6 +533,7 @@ class ChatGPTTelegramBot:
                         photo=image_bytes,
                         caption=price,
                         reply_to_message_id=query.message.message_id,
+                        reply_markup=reply_markup,
                     )
                 elif self.config['image_receive_mode'] == 'document':
                     await context.bot.send_document(
@@ -518,13 +541,14 @@ class ChatGPTTelegramBot:
                         document=image_bytes,
                         caption=price,
                         reply_to_message_id=query.message.message_id,
+                        reply_markup=reply_markup,
                     )
 
                 user_id = query.from_user.id
                 if user_id not in self.usage:
                     self.usage[user_id] = UsageTracker(user_id, query.from_user.name)
 
-                # add image request to users usage tracker
+                # add image request to users' usage tracker
                 self.usage[user_id].add_image_request(image_size, self.config['image_prices'])
                 # add guest chat request to guest usage tracker
                 if str(user_id) not in self.config['allowed_user_ids'].split(',') and 'guests' in self.usage:
