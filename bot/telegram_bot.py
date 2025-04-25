@@ -18,6 +18,8 @@ from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     InlineQueryResultArticle,
+    InputMediaDocument,
+    InputMediaPhoto,
     InputTextMessageContent,
     Message,
     Update,
@@ -503,10 +505,17 @@ class ChatGPTTelegramBot:
 
         # Retrieve prompt from cache
         if prompt_id not in self.image_prompts_cache:
-            await update.effective_message.reply_text('Sorry, the prompt is no longer available.')
+            await query.answer('Sorry, the prompt is no longer available.')
             return
 
         prompt = self.image_prompts_cache[prompt_id]
+
+        # Update button to show loading state
+        loading_keyboard = [[InlineKeyboardButton('⏳ Generating...', callback_data='loading')]]
+        loading_markup = InlineKeyboardMarkup(loading_keyboard)
+        await context.bot.edit_message_reply_markup(
+            chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=loading_markup
+        )
 
         async def _generate():
             try:
@@ -515,8 +524,21 @@ class ChatGPTTelegramBot:
                 quality_param = 'high' if target_quality == 'high' else 'medium'
                 image_bytes, image_size, price = await self.openai.generate_image(prompt=prompt, quality=quality_param)
 
-                # Update the message with new button if quality can be improved further
-                reply_markup = None
+                # Update the original message with the new image
+                if self.config['image_receive_mode'] == 'photo':
+                    await context.bot.edit_message_media(
+                        chat_id=query.message.chat_id,
+                        message_id=query.message.message_id,
+                        media=InputMediaPhoto(image_bytes, caption=price),
+                    )
+                elif self.config['image_receive_mode'] == 'document':
+                    await context.bot.edit_message_media(
+                        chat_id=query.message.chat_id,
+                        message_id=query.message.message_id,
+                        media=InputMediaDocument(image_bytes, caption=price),
+                    )
+
+                # Update the button based on the new quality level
                 if target_quality == 'medium':
                     keyboard = [
                         [
@@ -525,24 +547,13 @@ class ChatGPTTelegramBot:
                             )
                         ]
                     ]
-                    reply_markup = InlineKeyboardMarkup(keyboard)
+                else:
+                    keyboard = [[InlineKeyboardButton('✅ Quality Improved', callback_data='done')]]
 
-                if self.config['image_receive_mode'] == 'photo':
-                    await context.bot.send_photo(
-                        chat_id=query.message.chat_id,
-                        photo=image_bytes,
-                        caption=price,
-                        reply_to_message_id=query.message.message_id,
-                        reply_markup=reply_markup,
-                    )
-                elif self.config['image_receive_mode'] == 'document':
-                    await context.bot.send_document(
-                        chat_id=query.message.chat_id,
-                        document=image_bytes,
-                        caption=price,
-                        reply_to_message_id=query.message.message_id,
-                        reply_markup=reply_markup,
-                    )
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await context.bot.edit_message_reply_markup(
+                    chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=reply_markup
+                )
 
                 user_id = query.from_user.id
                 if user_id not in self.usage:
