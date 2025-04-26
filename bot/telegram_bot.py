@@ -126,6 +126,7 @@ class ChatGPTTelegramBot:
         self.last_message = {}
         self.inline_queries_cache = {}
         self.image_prompts_cache = {}  # Cache for storing image prompts
+        self.image_quality_cache = {}
         self.replies_tracker = {}
 
     def get_thread_id(self, update: Update) -> str:
@@ -360,6 +361,45 @@ class ChatGPTTelegramBot:
         )
         self.save_reply(sent_msg, update)
 
+    async def handle_show_quality(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """
+        Handles the show quality button callback
+        """
+        query = update.callback_query
+        await query.answer()
+
+        if not has_image_gen_permission(self.config, query.from_user.id):
+            return
+
+        # Extract prompt ID and target quality from callback data
+        parts = query.data.split(':')
+        prompt_id = parts[1]
+        target_quality = parts[2]
+
+        # Retrieve image from cache
+        if prompt_id not in self.image_quality_cache or target_quality not in self.image_quality_cache[prompt_id]:
+            await query.answer('Sorry, this quality version is no longer available.')
+            return
+
+        image_bytes = self.image_quality_cache[prompt_id][target_quality]
+        reply_markup = self.image_quality_cache[prompt_id]['reply_markup']
+
+        # Update the message with the selected quality version
+        if self.config['image_receive_mode'] == 'photo':
+            await context.bot.edit_message_media(
+                chat_id=query.message.chat_id,
+                message_id=query.message.message_id,
+                media=InputMediaPhoto(image_bytes),
+                reply_markup=reply_markup,
+            )
+        elif self.config['image_receive_mode'] == 'document':
+            await context.bot.edit_message_media(
+                chat_id=query.message.chat_id,
+                message_id=query.message.message_id,
+                media=InputMediaDocument(image_bytes),
+                reply_markup=reply_markup,
+            )
+
     async def image_natural(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await self.image(update, context, style='natural')
 
@@ -433,15 +473,16 @@ class ChatGPTTelegramBot:
                     prompt=image_query, style=style, image_to_edit=image_to_edit
                 )
 
-                # Store prompt in cache with unique ID
+                # Store prompt and low quality image in cache with unique ID
                 prompt_id = str(uuid4())
                 self.image_prompts_cache[prompt_id] = image_query
+                self.image_quality_cache[prompt_id] = {'low': image_bytes}
 
                 # Create inline keyboard with improve quality button
                 keyboard = [
                     [
                         InlineKeyboardButton(
-                            '🖼️ Improve to Medium Quality', callback_data=f'improve_quality:{prompt_id}:medium'
+                            '🖼️ Improve to Medium Quality ($0.1)', callback_data=f'improve_quality:{prompt_id}:medium'
                         )
                     ]
                 ]
@@ -519,10 +560,10 @@ class ChatGPTTelegramBot:
 
         async def _generate():
             try:
-                # Generate medium quality image
-                # Determine quality parameter based on target quality
+                # Generate and store the new quality version
                 quality_param = 'high' if target_quality == 'high' else 'medium'
                 image_bytes, image_size, price = await self.openai.generate_image(prompt=prompt, quality=quality_param)
+                self.image_quality_cache[prompt_id][quality_param] = image_bytes
 
                 # Update the original message with the new image
                 if self.config['image_receive_mode'] == 'photo':
@@ -542,15 +583,27 @@ class ChatGPTTelegramBot:
                 if target_quality == 'medium':
                     keyboard = [
                         [
+                            InlineKeyboardButton('LOW', callback_data=f'show_quality:{prompt_id}:low'),
+                            InlineKeyboardButton('MEDIUM', callback_data=f'show_quality:{prompt_id}:medium'),
+                        ],
+                        [
                             InlineKeyboardButton(
-                                '🖼️ Improve to High Quality', callback_data=f'improve_quality:{prompt_id}:high'
-                            )
-                        ]
+                                '❗ Improve to High Quality ($0.2)', callback_data=f'improve_quality:{prompt_id}:high'
+                            ),
+                        ],
                     ]
                 else:
-                    keyboard = [[InlineKeyboardButton('✅ Quality Improved', callback_data='done')]]
+                    # Update the buttons to show all available quality levels
+                    keyboard = [
+                        [
+                            InlineKeyboardButton('LOW', callback_data=f'show_quality:{prompt_id}:low'),
+                            InlineKeyboardButton('MEDIUM', callback_data=f'show_quality:{prompt_id}:medium'),
+                            InlineKeyboardButton('HIGH', callback_data=f'show_quality:{prompt_id}:high'),
+                        ]
+                    ]
 
                 reply_markup = InlineKeyboardMarkup(keyboard)
+                self.image_quality_cache[prompt_id]['reply_markup'] = reply_markup
                 await context.bot.edit_message_reply_markup(
                     chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=reply_markup
                 )
@@ -1515,6 +1568,7 @@ class ChatGPTTelegramBot:
         )
         application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), self.prompt))
         application.add_handler(CallbackQueryHandler(self.handle_improve_quality, pattern='^improve_quality:'))
+        application.add_handler(CallbackQueryHandler(self.handle_show_quality, pattern='^show_quality:'))
         application.add_handler(
             InlineQueryHandler(
                 self.inline_query,
