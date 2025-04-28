@@ -562,13 +562,17 @@ class ChatGPTTelegramBot:
                 self.image_prompts_cache[prompt_id] = image_query
                 self.image_quality_cache[prompt_id] = {'highest': 'low'}
 
+                # Add username to price caption
+                username = update.message.from_user.username or update.message.from_user.first_name
+                price_with_user = f"{price}\n\nby @{username}"
+
                 reply_markup = self._get_quality_reply_markup(prompt_id)
                 sent_msg = None
                 if self.config['image_receive_mode'] == 'photo':
                     sent_msg = await update.effective_message.reply_photo(
                         reply_to_message_id=get_reply_to_message_id(self.config, update),
                         photo=image_bytes,
-                        caption=price,
+                        caption=price_with_user,
                         reply_markup=reply_markup,
                     )
                     file_id = sent_msg.photo[-1].file_id
@@ -576,7 +580,7 @@ class ChatGPTTelegramBot:
                     sent_msg = await update.effective_message.reply_document(
                         reply_to_message_id=get_reply_to_message_id(self.config, update),
                         document=image_bytes,
-                        caption=price,
+                        caption=price_with_user,
                         reply_markup=reply_markup,
                     )
                     file_id = sent_msg.document.file_id
@@ -585,7 +589,7 @@ class ChatGPTTelegramBot:
                         f"env variable IMAGE_RECEIVE_MODE has invalid value {self.config['image_receive_mode']}"
                     )
 
-                self.image_quality_cache[prompt_id]['low'] = {'file_id': file_id, 'caption': price}
+                self.image_quality_cache[prompt_id]['low'] = {'file_id': file_id, 'caption': price_with_user}
 
                 user_id = update.message.from_user.id
                 if user_id not in self.usage:
@@ -644,6 +648,10 @@ class ChatGPTTelegramBot:
                 quality_param = 'high' if target_quality == 'high' else 'medium'
                 image_bytes, image_size, price = await self.openai.generate_image(prompt=prompt, quality=quality_param)
 
+                # Add username to price caption
+                username = query.from_user.username or query.from_user.first_name
+                price_with_user = f"{price}\n\nby @{username}"
+
                 self.image_quality_cache[prompt_id]['highest'] = quality_param
 
                 sent_msg = None
@@ -652,7 +660,7 @@ class ChatGPTTelegramBot:
                     sent_msg = await context.bot.edit_message_media(
                         chat_id=query.message.chat_id,
                         message_id=query.message.message_id,
-                        media=InputMediaPhoto(image_bytes, caption=price),
+                        media=InputMediaPhoto(image_bytes, caption=price_with_user),
                         reply_markup=reply_markup,
                     )
                     file_id = sent_msg.photo[-1].file_id
@@ -660,12 +668,12 @@ class ChatGPTTelegramBot:
                     sent_msg = await context.bot.edit_message_media(
                         chat_id=query.message.chat_id,
                         message_id=query.message.message_id,
-                        media=InputMediaDocument(image_bytes, caption=price),
+                        media=InputMediaDocument(image_bytes, caption=price_with_user),
                         reply_markup=reply_markup,
                     )
                     file_id = sent_msg.document.file_id
 
-                self.image_quality_cache[prompt_id][quality_param] = {'file_id': file_id, 'caption': price}
+                self.image_quality_cache[prompt_id][quality_param] = {'file_id': file_id, 'caption': price_with_user}
 
                 user_id = query.from_user.id
                 if user_id not in self.usage:
