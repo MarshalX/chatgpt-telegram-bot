@@ -442,7 +442,7 @@ class ChatGPTTelegramBot:
         
         confirmation_text = (
             "⚠️ Premium Feature: High Quality Generation\n"
-            "Cost: $0.2 (= 2 medium quality images)\n\n"
+            "Cost: $0.2 (= 4 medium quality images)\n\n"
             "High quality images provide:\n"
             "• 1024x1024 resolution\n"
             "• Enhanced details and clarity\n"
