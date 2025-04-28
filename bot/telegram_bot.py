@@ -7,6 +7,7 @@ import os
 from collections.abc import Sequence
 from typing import Optional
 from uuid import uuid4
+from datetime import datetime
 
 import asyncpg
 from openai_helper import OpenAIHelper, localized_text
@@ -128,6 +129,7 @@ class ChatGPTTelegramBot:
         self.image_prompts_cache = {}  # Cache for storing image prompts
         self.image_quality_cache = {}
         self.replies_tracker = {}
+        self.pending_quality_confirmations = {}  # Store pending confirmations
 
     def get_thread_id(self, update: Update) -> str:
         c = update.effective_chat.id
@@ -380,8 +382,17 @@ class ChatGPTTelegramBot:
             ])
         elif highest == 'medium':
             keyboard.append([
-                InlineKeyboardButton('❗ Improve to High Quality ($0.2)', callback_data=f'improve_quality:{prompt_id}:high')
+                InlineKeyboardButton('❗ Request High Quality Upgrade ($0.2)', callback_data=f'confirm_quality:{prompt_id}:high')
             ])
+        return InlineKeyboardMarkup(keyboard)
+
+    def _get_confirmation_markup(self, prompt_id):
+        keyboard = [
+            [
+                InlineKeyboardButton('❌ Cancel', callback_data=f'cancel_quality:{prompt_id}'),
+                InlineKeyboardButton('✅ Confirm ($0.2)', callback_data=f'improve_quality:{prompt_id}:high')
+            ],
+        ]
         return InlineKeyboardMarkup(keyboard)
 
     async def handle_show_quality(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -417,6 +428,62 @@ class ChatGPTTelegramBot:
                 media=InputMediaDocument(media=file_id, caption=caption),
                 reply_markup=reply_markup,
             )
+
+    async def handle_quality_confirmation(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        await query.answer()
+
+        if not has_image_gen_permission(self.config, query.from_user.id):
+            return
+
+        parts = query.data.split(':')
+        prompt_id = parts[1]
+        target_quality = parts[2]
+        
+        confirmation_text = (
+            "⚠️ Premium Feature: High Quality Generation\n"
+            "Cost: $0.2 (= 2 medium quality images)\n\n"
+            "High quality images provide:\n"
+            "• 1024x1024 resolution\n"
+            "• Enhanced details and clarity\n"
+            "• Better handling of complex scenes\n\n"
+            "Are you sure you want to proceed?"
+        )
+
+        # Store the confirmation state
+        self.pending_quality_confirmations[prompt_id] = {
+            'user_id': query.from_user.id,
+            'timestamp': datetime.now(),
+            'target_quality': target_quality
+        }
+
+        # Update the message with confirmation dialog
+        await context.bot.edit_message_caption(
+            chat_id=query.message.chat_id,
+            message_id=query.message.message_id,
+            caption=confirmation_text,
+            reply_markup=self._get_confirmation_markup(prompt_id)
+        )
+
+    async def handle_quality_cancel(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        await query.answer()
+
+        parts = query.data.split(':')
+        prompt_id = parts[1]
+
+        # Remove from pending confirmations
+        if prompt_id in self.pending_quality_confirmations:
+            del self.pending_quality_confirmations[prompt_id]
+
+        # Restore original markup
+        original_caption = self.image_quality_cache[prompt_id]['medium']['caption']
+        await context.bot.edit_message_caption(
+            chat_id=query.message.chat_id,
+            message_id=query.message.message_id,
+            caption=original_caption,
+            reply_markup=self._get_quality_reply_markup(prompt_id)
+        )
 
     async def image_natural(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await self.image(update, context, style='natural')
@@ -548,6 +615,16 @@ class ChatGPTTelegramBot:
         parts = query.data.split(':')
         prompt_id = parts[1]
         target_quality = parts[2]
+
+        # Check if this is a confirmed action for high quality
+        if target_quality == 'high' and prompt_id not in self.pending_quality_confirmations:
+            # If not confirmed, show confirmation dialog
+            await self.handle_quality_confirmation(update, context)
+            return
+
+        # Clean up confirmation state if it exists
+        if prompt_id in self.pending_quality_confirmations:
+            del self.pending_quality_confirmations[prompt_id]
 
         if prompt_id not in self.image_prompts_cache:
             await query.answer('Sorry, the prompt is no longer available.')
@@ -1548,6 +1625,8 @@ class ChatGPTTelegramBot:
         application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), self.prompt))
         application.add_handler(CallbackQueryHandler(self.handle_improve_quality, pattern='^improve_quality:'))
         application.add_handler(CallbackQueryHandler(self.handle_show_quality, pattern='^show_quality:'))
+        application.add_handler(CallbackQueryHandler(self.handle_quality_confirmation, pattern='^confirm_quality:'))
+        application.add_handler(CallbackQueryHandler(self.handle_quality_cancel, pattern='^cancel_quality:'))
         application.add_handler(
             InlineQueryHandler(
                 self.inline_query,
