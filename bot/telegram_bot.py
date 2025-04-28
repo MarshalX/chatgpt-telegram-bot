@@ -361,42 +361,60 @@ class ChatGPTTelegramBot:
         )
         self.save_reply(sent_msg, update)
 
+    def _get_quality_reply_markup(self, prompt_id):
+        if prompt_id not in self.image_quality_cache or 'highest' not in self.image_quality_cache[prompt_id]:
+            return None
+        highest = self.image_quality_cache[prompt_id]['highest']
+        keyboard = []
+        # Always show LOW
+        row = [InlineKeyboardButton('LOW', callback_data=f'show_quality:{prompt_id}:low')]
+        if highest in ('medium', 'high'):
+            row.append(InlineKeyboardButton('MEDIUM', callback_data=f'show_quality:{prompt_id}:medium'))
+        if highest == 'high':
+            row.append(InlineKeyboardButton('HIGH', callback_data=f'show_quality:{prompt_id}:high'))
+        keyboard.append(row)
+        # Add improve button if not at highest
+        if highest == 'low':
+            keyboard.append([
+                InlineKeyboardButton('🖼️ Improve to Medium Quality ($0.1)', callback_data=f'improve_quality:{prompt_id}:medium')
+            ])
+        elif highest == 'medium':
+            keyboard.append([
+                InlineKeyboardButton('❗ Improve to High Quality ($0.2)', callback_data=f'improve_quality:{prompt_id}:high')
+            ])
+        return InlineKeyboardMarkup(keyboard)
+
     async def handle_show_quality(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """
-        Handles the show quality button callback
-        """
         query = update.callback_query
         await query.answer()
 
         if not has_image_gen_permission(self.config, query.from_user.id):
             return
 
-        # Extract prompt ID and target quality from callback data
         parts = query.data.split(':')
         prompt_id = parts[1]
         target_quality = parts[2]
 
-        # Retrieve image from cache
         if prompt_id not in self.image_quality_cache or target_quality not in self.image_quality_cache[prompt_id]:
             await query.answer('Sorry, this quality version is no longer available.')
             return
 
-        image_bytes = self.image_quality_cache[prompt_id][target_quality]
-        reply_markup = self.image_quality_cache[prompt_id]['reply_markup']
+        file_id = self.image_quality_cache[prompt_id][target_quality]['file_id']
+        caption = self.image_quality_cache[prompt_id][target_quality]['caption']
+        reply_markup = self._get_quality_reply_markup(prompt_id)
 
-        # Update the message with the selected quality version
         if self.config['image_receive_mode'] == 'photo':
             await context.bot.edit_message_media(
                 chat_id=query.message.chat_id,
                 message_id=query.message.message_id,
-                media=InputMediaPhoto(image_bytes),
+                media=InputMediaPhoto(media=file_id, caption=caption),
                 reply_markup=reply_markup,
             )
         elif self.config['image_receive_mode'] == 'document':
             await context.bot.edit_message_media(
                 chat_id=query.message.chat_id,
                 message_id=query.message.message_id,
-                media=InputMediaDocument(image_bytes),
+                media=InputMediaDocument(media=file_id, caption=caption),
                 reply_markup=reply_markup,
             )
 
@@ -468,53 +486,44 @@ class ChatGPTTelegramBot:
 
         async def _generate():
             try:
-                # Generate low quality image
                 image_bytes, image_size, price = await self.openai.generate_image(
                     prompt=image_query, style=style, image_to_edit=image_to_edit
                 )
 
-                # Store prompt and low quality image in cache with unique ID
                 prompt_id = str(uuid4())
                 self.image_prompts_cache[prompt_id] = image_query
-                self.image_quality_cache[prompt_id] = {'low': image_bytes}
+                self.image_quality_cache[prompt_id] = {'highest': 'low'}
 
-                # Create inline keyboard with improve quality button
-                keyboard = [
-                    [
-                        InlineKeyboardButton(
-                            '🖼️ Improve to Medium Quality ($0.1)', callback_data=f'improve_quality:{prompt_id}:medium'
-                        )
-                    ]
-                ]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-
+                reply_markup = self._get_quality_reply_markup(prompt_id)
+                sent_msg = None
                 if self.config['image_receive_mode'] == 'photo':
-                    await update.effective_message.reply_photo(
+                    sent_msg = await update.effective_message.reply_photo(
                         reply_to_message_id=get_reply_to_message_id(self.config, update),
                         photo=image_bytes,
                         caption=price,
                         reply_markup=reply_markup,
                     )
+                    file_id = sent_msg.photo[-1].file_id
                 elif self.config['image_receive_mode'] == 'document':
-                    await update.effective_message.reply_document(
+                    sent_msg = await update.effective_message.reply_document(
                         reply_to_message_id=get_reply_to_message_id(self.config, update),
                         document=image_bytes,
                         caption=price,
                         reply_markup=reply_markup,
                     )
+                    file_id = sent_msg.document.file_id
                 else:
                     raise Exception(
                         f"env variable IMAGE_RECEIVE_MODE has invalid value {self.config['image_receive_mode']}"
                     )
 
+                self.image_quality_cache[prompt_id]['low'] = {'file_id': file_id, 'caption': price}
+
                 user_id = update.message.from_user.id
                 if user_id not in self.usage:
                     self.usage[user_id] = UsageTracker(user_id, update.message.from_user.name)
 
-                # add image request to users usage tracker
-                user_id = update.message.from_user.id
                 self.usage[user_id].add_image_request(image_size, self.config['image_prices'])
-                # add guest chat request to guest usage tracker
                 if str(user_id) not in self.config['allowed_user_ids'].split(',') and 'guests' in self.usage:
                     self.usage['guests'].add_image_request(image_size, self.config['image_prices'])
 
@@ -530,28 +539,22 @@ class ChatGPTTelegramBot:
         await wrap_with_indicator(update, context, _generate, constants.ChatAction.UPLOAD_PHOTO)
 
     async def handle_improve_quality(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """
-        Handles the improve quality button callback
-        """
         query = update.callback_query
         await query.answer()
 
         if not has_image_gen_permission(self.config, query.from_user.id):
             return
 
-        # Extract prompt ID and target quality from callback data
         parts = query.data.split(':')
         prompt_id = parts[1]
         target_quality = parts[2]
 
-        # Retrieve prompt from cache
         if prompt_id not in self.image_prompts_cache:
             await query.answer('Sorry, the prompt is no longer available.')
             return
 
         prompt = self.image_prompts_cache[prompt_id]
 
-        # Update button to show loading state
         loading_keyboard = [[InlineKeyboardButton('⏳ Generating...', callback_data='loading')]]
         loading_markup = InlineKeyboardMarkup(loading_keyboard)
         await context.bot.edit_message_reply_markup(
@@ -560,61 +563,37 @@ class ChatGPTTelegramBot:
 
         async def _generate():
             try:
-                # Generate and store the new quality version
                 quality_param = 'high' if target_quality == 'high' else 'medium'
                 image_bytes, image_size, price = await self.openai.generate_image(prompt=prompt, quality=quality_param)
-                self.image_quality_cache[prompt_id][quality_param] = image_bytes
 
-                # Update the original message with the new image
+                self.image_quality_cache[prompt_id]['highest'] = quality_param
+
+                sent_msg = None
+                reply_markup = self._get_quality_reply_markup(prompt_id)
                 if self.config['image_receive_mode'] == 'photo':
-                    await context.bot.edit_message_media(
+                    sent_msg = await context.bot.edit_message_media(
                         chat_id=query.message.chat_id,
                         message_id=query.message.message_id,
                         media=InputMediaPhoto(image_bytes, caption=price),
+                        reply_markup=reply_markup,
                     )
-                elif self.config['image_receive_mode'] == 'document':
-                    await context.bot.edit_message_media(
+                    file_id = sent_msg.photo[-1].file_id
+                else:
+                    sent_msg = await context.bot.edit_message_media(
                         chat_id=query.message.chat_id,
                         message_id=query.message.message_id,
                         media=InputMediaDocument(image_bytes, caption=price),
+                        reply_markup=reply_markup,
                     )
+                    file_id = sent_msg.document.file_id
 
-                # Update the button based on the new quality level
-                if target_quality == 'medium':
-                    keyboard = [
-                        [
-                            InlineKeyboardButton('LOW', callback_data=f'show_quality:{prompt_id}:low'),
-                            InlineKeyboardButton('MEDIUM', callback_data=f'show_quality:{prompt_id}:medium'),
-                        ],
-                        [
-                            InlineKeyboardButton(
-                                '❗ Improve to High Quality ($0.2)', callback_data=f'improve_quality:{prompt_id}:high'
-                            ),
-                        ],
-                    ]
-                else:
-                    # Update the buttons to show all available quality levels
-                    keyboard = [
-                        [
-                            InlineKeyboardButton('LOW', callback_data=f'show_quality:{prompt_id}:low'),
-                            InlineKeyboardButton('MEDIUM', callback_data=f'show_quality:{prompt_id}:medium'),
-                            InlineKeyboardButton('HIGH', callback_data=f'show_quality:{prompt_id}:high'),
-                        ]
-                    ]
-
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                self.image_quality_cache[prompt_id]['reply_markup'] = reply_markup
-                await context.bot.edit_message_reply_markup(
-                    chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=reply_markup
-                )
+                self.image_quality_cache[prompt_id][quality_param] = {'file_id': file_id, 'caption': price}
 
                 user_id = query.from_user.id
                 if user_id not in self.usage:
                     self.usage[user_id] = UsageTracker(user_id, query.from_user.name)
 
-                # add image request to users' usage tracker
                 self.usage[user_id].add_image_request(image_size, self.config['image_prices'])
-                # add guest chat request to guest usage tracker
                 if str(user_id) not in self.config['allowed_user_ids'].split(',') and 'guests' in self.usage:
                     self.usage['guests'].add_image_request(image_size, self.config['image_prices'])
 
