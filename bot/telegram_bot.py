@@ -36,6 +36,7 @@ from telegram.ext import (
     ContextTypes,
     InlineQueryHandler,
     MessageHandler,
+    ChosenInlineResultHandler,
     filters,
 )
 from usage_tracker import UsageTracker
@@ -1300,209 +1301,201 @@ class ChatGPTTelegramBot:
         Handle the inline query. This is run when you type: @botusername <query>
         """
         query = update.inline_query.query
+        user_id = update.inline_query.from_user.id
+        name = update.inline_query.from_user.name
+        
         if len(query) < 3:
             return
+            
         if not await self.check_allowed_and_within_budget(update, context, is_inline=True):
+            logging.warning(f'User {name} (id: {user_id}) not allowed or over budget')
             return
 
-        callback_data_suffix = 'gpt:'
         result_id = str(uuid4())
         self.inline_queries_cache[result_id] = query
-        callback_data = f'{callback_data_suffix}{result_id}'
-
-        await self.send_inline_query_result(update, result_id, message_content=query, callback_data=callback_data)
+        await self.send_inline_query_result(update, result_id, message_content=query)
 
     async def send_inline_query_result(self, update: Update, result_id, message_content, callback_data=''):
         """
-        Send inline query result
+        Send inline query result with a placeholder message that will be updated with the actual response
         """
         try:
-            reply_markup = None
             bot_language = self.config['bot_language']
-            if callback_data:
-                reply_markup = InlineKeyboardMarkup(
-                    [
-                        [
-                            InlineKeyboardButton(
-                                text=f'{localized_text("answer_with_chatgpt", bot_language)}',
-                                callback_data=callback_data,
-                            )
-                        ]
-                    ]
-                )
+            loading_tr = localized_text('loading', bot_language)
+            answer_tr = localized_text('answer', bot_language)
+
+            placeholder_text = f'{message_content}\n\n_{answer_tr}:_\n{loading_tr}'
+            
+            # Add a placeholder button
+            reply_markup = InlineKeyboardMarkup([[
+                InlineKeyboardButton("⏳ Generating...", callback_data="generating")
+            ]])
 
             inline_query_result = InlineQueryResultArticle(
                 id=result_id,
                 title=localized_text('ask_chatgpt', bot_language),
-                input_message_content=InputTextMessageContent(message_content),
+                input_message_content=InputTextMessageContent(
+                    placeholder_text,
+                    parse_mode=constants.ParseMode.MARKDOWN
+                ),
                 description=message_content,
                 thumbnail_url='https://user-images.githubusercontent.com/11541888/223106202-7576ff11-2c8e-408d-94ea'
                 '-b02a7a32149a.png',
-                reply_markup=reply_markup,
+                reply_markup=reply_markup
             )
 
             await update.inline_query.answer([inline_query_result], cache_time=0)
         except Exception as e:
-            logging.error(f'An error occurred while generating the result card for inline query {e}')
+            logging.error(f'Failed to send inline result for result_id {result_id}: {str(e)}')
+            logging.exception(e)
 
-    async def handle_callback_inline_query(self, update: Update, context: CallbackContext):
+    async def handle_chosen_inline_result(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """
-        Handle the callback query from the inline query result
+        Handle the chosen inline result and generate the response
         """
-        callback_data = update.callback_query.data
-        user_id = update.callback_query.from_user.id
-        inline_message_id = update.callback_query.inline_message_id
-        name = update.callback_query.from_user.name
-        callback_data_suffix = 'gpt:'
-        query = ''
+        if not update.chosen_inline_result:
+            logging.warning('Received empty chosen_inline_result')
+            return
+
+        result_id = update.chosen_inline_result.result_id
+        inline_message_id = update.chosen_inline_result.inline_message_id
+        user_id = update.chosen_inline_result.from_user.id
+        name = update.chosen_inline_result.from_user.name
+
+        # Retrieve the query from cache
+        query = self.inline_queries_cache.get(result_id)
+        if not query:
+            logging.error(f'Query not found in cache for result_id: {result_id}')
+            error_message = f'{localized_text("error", self.config["bot_language"])}. {localized_text("try_again", self.config["bot_language"])}'
+            await edit_message_with_retry(
+                context,
+                chat_id=None,
+                message_id=inline_message_id,
+                text=error_message,
+                is_inline=True
+            )
+            return
+
+        logging.info(f'User {name} (id: {user_id}) selected result_id: {result_id} ({query})')
+        self.inline_queries_cache.pop(result_id)
+
         bot_language = self.config['bot_language']
         answer_tr = localized_text('answer', bot_language)
         loading_tr = localized_text('loading', bot_language)
+        total_tokens = 0
 
         try:
-            if callback_data.startswith(callback_data_suffix):
-                unique_id = callback_data.split(':')[1]
-                total_tokens = 0
-
-                # Retrieve the prompt from the cache
-                query = self.inline_queries_cache.get(unique_id)
-                if query:
-                    self.inline_queries_cache.pop(unique_id)
-                else:
-                    error_message = (
-                        f'{localized_text("error", bot_language)}. ' f'{localized_text("try_again", bot_language)}'
-                    )
-                    await edit_message_with_retry(
-                        context,
-                        chat_id=None,
-                        message_id=inline_message_id,
-                        text=f'{query}\n\n_{answer_tr}:_\n{error_message}',
-                        is_inline=True,
-                    )
-                    return
-
-                unavailable_message = localized_text('function_unavailable_in_inline_mode', bot_language)
-                if self.config['stream']:
-                    stream_response = self.openai.get_chat_response_stream(chat_id=str(user_id), query=query)
-                    i = 0
-                    prev = ''
-                    backoff = 0
-                    async for content, tokens in stream_response:
-                        if is_direct_result(content):
-                            await edit_message_with_retry(
-                                context,
-                                chat_id=None,
-                                message_id=inline_message_id,
-                                text=f'{query}\n\n_{answer_tr}:_\n{unavailable_message}',
-                                is_inline=True,
-                            )
-                            return
-
-                        if len(content.strip()) == 0:
-                            continue
-
-                        cutoff = get_stream_cutoff_values(update, content)
-                        cutoff += backoff
-
-                        if i == 0:
-                            try:
-                                await edit_message_with_retry(
-                                    context,
-                                    chat_id=None,
-                                    message_id=inline_message_id,
-                                    text=f'{query}\n\n{answer_tr}:\n{content}',
-                                    is_inline=True,
-                                )
-                            except:
-                                continue
-
-                        elif abs(len(content) - len(prev)) > cutoff or tokens != 'not_finished':
-                            prev = content
-                            try:
-                                use_markdown = tokens != 'not_finished'
-                                divider = '_' if use_markdown else ''
-                                text = f'{query}\n\n{divider}{answer_tr}:{divider}\n{content}'
-
-                                # We only want to send the first 4096 characters. No chunking allowed in inline mode.
-                                text = text[:4096]
-
-                                await edit_message_with_retry(
-                                    context,
-                                    chat_id=None,
-                                    message_id=inline_message_id,
-                                    text=text,
-                                    markdown=use_markdown,
-                                    is_inline=True,
-                                )
-
-                            except RetryAfter as e:
-                                backoff += 5
-                                await asyncio.sleep(e.retry_after)
-                                continue
-                            except TimedOut:
-                                backoff += 5
-                                await asyncio.sleep(0.5)
-                                continue
-                            except Exception:
-                                backoff += 5
-                                continue
-
-                            await asyncio.sleep(0.01)
-
-                        i += 1
-                        if tokens != 'not_finished':
-                            total_tokens = int(tokens)
-
-                else:
-
-                    async def _send_inline_query_response():
-                        nonlocal total_tokens
-                        # Edit the current message to indicate that the answer is being processed
-                        await context.bot.edit_message_text(
-                            inline_message_id=inline_message_id,
-                            text=f'{query}\n\n_{answer_tr}:_\n{loading_tr}',
-                            parse_mode=constants.ParseMode.MARKDOWN,
-                        )
-
-                        logging.info(f'Generating response for inline query by {name}')
-                        response, total_tokens = await self.openai.get_chat_response(chat_id=str(user_id), query=query)
-
-                        if is_direct_result(response):
-                            await edit_message_with_retry(
-                                context,
-                                chat_id=None,
-                                message_id=inline_message_id,
-                                text=f'{query}\n\n_{answer_tr}:_\n{unavailable_message}',
-                                is_inline=True,
-                            )
-                            return
-
-                        text_content = f'{query}\n\n_{answer_tr}:_\n{response}'
-
-                        # We only want to send the first 4096 characters. No chunking allowed in inline mode.
-                        text_content = text_content[:4096]
-
-                        # Edit the original message with the generated content
+            if self.config['stream']:
+                stream_response = self.openai.get_chat_response_stream(chat_id=str(user_id), query=query)
+                i = 0
+                prev = ''
+                backoff = 0
+                async for content, tokens in stream_response:
+                    if is_direct_result(content):
+                        logging.info('Received direct result, not supported in inline mode')
+                        unavailable_message = localized_text('function_unavailable_in_inline_mode', bot_language)
                         await edit_message_with_retry(
                             context,
                             chat_id=None,
                             message_id=inline_message_id,
-                            text=text_content,
+                            text=f'{query}\n\n_{answer_tr}:_\n{unavailable_message}',
                             is_inline=True,
                         )
+                        return
 
-                    await wrap_with_indicator(
-                        update,
+                    if len(content.strip()) == 0:
+                        continue
+
+                    cutoff = get_stream_cutoff_values(update, content)
+                    cutoff += backoff
+
+                    if i == 0:
+                        try:
+                            await edit_message_with_retry(
+                                context,
+                                chat_id=None,
+                                message_id=inline_message_id,
+                                text=f'{query}\n\n{answer_tr}:\n{content}',
+                                is_inline=True,
+                            )
+                        except Exception as e:
+                            continue
+
+                    elif abs(len(content) - len(prev)) > cutoff or tokens != 'not_finished':
+                        prev = content
+                        try:
+                            use_markdown = tokens != 'not_finished'
+                            divider = '_' if use_markdown else ''
+                            text = f'{query}\n\n{divider}{answer_tr}:{divider}\n{content}'
+
+                            # We only want to send the first 4096 characters. No chunking allowed in inline mode.
+                            text = text[:4096]
+
+                            await edit_message_with_retry(
+                                context,
+                                chat_id=None,
+                                message_id=inline_message_id,
+                                text=text,
+                                markdown=use_markdown,
+                                is_inline=True,
+                            )
+
+                        except RetryAfter as e:
+                            backoff += 5
+                            await asyncio.sleep(e.retry_after)
+                            continue
+                        except TimedOut:
+                            backoff += 5
+                            await asyncio.sleep(0.5)
+                            continue
+                        except Exception as e:
+                            backoff += 5
+                            continue
+
+                        await asyncio.sleep(0.01)
+
+                    i += 1
+                    if tokens != 'not_finished':
+                        total_tokens = int(tokens)
+
+            else:
+                # Show loading message
+                await context.bot.edit_message_text(
+                    inline_message_id=inline_message_id,
+                    text=f'{query}\n\n_{answer_tr}:_\n{loading_tr}',
+                    parse_mode=constants.ParseMode.MARKDOWN,
+                )
+
+                response, total_tokens = await self.openai.get_chat_response(chat_id=str(user_id), query=query)
+
+                if is_direct_result(response):
+                    logging.info('Received direct result, not supported in inline mode')
+                    unavailable_message = localized_text('function_unavailable_in_inline_mode', bot_language)
+                    await edit_message_with_retry(
                         context,
-                        _send_inline_query_response,
-                        constants.ChatAction.TYPING,
+                        chat_id=None,
+                        message_id=inline_message_id,
+                        text=f'{query}\n\n_{answer_tr}:_\n{unavailable_message}',
                         is_inline=True,
                     )
+                    return
 
-                add_chat_request_to_usage_tracker(self.usage, self.config, user_id, total_tokens)
+                text_content = f'{query}\n\n_{answer_tr}:_\n{response}'
+                # We only want to send the first 4096 characters. No chunking allowed in inline mode.
+                text_content = text_content[:4096]
+
+                await edit_message_with_retry(
+                    context,
+                    chat_id=None,
+                    message_id=inline_message_id,
+                    text=text_content,
+                    is_inline=True,
+                )
+
+            add_chat_request_to_usage_tracker(self.usage, self.config, user_id, total_tokens)
 
         except Exception as e:
-            logging.error(f'Failed to respond to an inline query via button callback: {e}')
+            logging.error(f'Failed to respond to an inline query: {str(e)}')
             logging.exception(e)
             localized_answer = localized_text('chat_fail', self.config['bot_language'])
             await edit_message_with_retry(
@@ -1528,7 +1521,6 @@ class ChatGPTTelegramBot:
 
         if not await is_allowed(self.config, update, context, is_inline=is_inline):
             logging.warning(f'User {name} (id: {user_id}) is not allowed to use the bot')
-            await self.send_disallowed_message(update, context, is_inline)
             return False
         if not is_within_budget(self.config, self.usage, update, is_inline=is_inline):
             logging.warning(f'User {name} (id: {user_id}) reached their usage limit')
@@ -1596,7 +1588,6 @@ class ChatGPTTelegramBot:
         )
 
         application.add_handler(CommandHandler('reset', self.reset))
-        # application.add_handler(CommandHandler('help', self.help))
         application.add_handler(CommandHandler('image', self.image_vivid))
         application.add_handler(CommandHandler('imagereal', self.image_natural))
         application.add_handler(CommandHandler('tts', self.tts))
@@ -1637,7 +1628,8 @@ class ChatGPTTelegramBot:
                 ],
             )
         )
-        application.add_handler(CallbackQueryHandler(self.handle_callback_inline_query))
+        # Add handler for chosen inline results
+        application.add_handler(ChosenInlineResultHandler(self.handle_chosen_inline_result))
 
         application.add_error_handler(error_handler)
 
