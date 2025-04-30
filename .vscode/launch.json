@@ -2,7 +2,7 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Python: Telegram Bot",
+            "name": "Bot: Production Mode",
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/bot/main.py",
@@ -10,6 +10,18 @@
             "justMyCode": true,
             "env": {
                 "PYTHONPATH": "${workspaceFolder}"
+            }
+        },
+        {
+            "name": "Bot: Development Mode (Hot Reload)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/dev.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}",
+                "ENVIRONMENT": "development"
             }
         },
         {
