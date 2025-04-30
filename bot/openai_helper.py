@@ -280,17 +280,18 @@ class OpenAIHelper:
             await self.reset_chat_history(chat_id)
         return len(self.conversations[chat_id]), self.__count_tokens(self.conversations[chat_id])
 
-    async def get_chat_response(self, chat_id: str, query: str) -> tuple[str, int]:
+    async def get_chat_response(self, chat_id: str, query: str, user_id: Optional[str] = None) -> tuple[str, int]:
         """
         Gets a full response from the GPT model.
         :param chat_id: The chat ID
         :param query: The query to send to the model
+        :param user_id: The user ID for tracking
         :return: The answer from the model and the number of tokens used
         """
         plugins_used = ()
-        response = await self.__common_get_chat_response(chat_id, query)
+        response = await self.__common_get_chat_response(chat_id, query, user_id)
         if self.config['enable_functions'] and not self.conversations_vision[chat_id]:
-            response, plugins_used = await self.__handle_function_call(chat_id, response)
+            response, plugins_used = await self.__handle_function_call(chat_id, response, user_id=user_id)
             if is_direct_result(response):
                 return response, 0
 
@@ -344,7 +345,7 @@ class OpenAIHelper:
 
         return answer, response.usage.total_tokens
 
-    async def get_chat_response_stream(self, chat_id: str, query: str):
+    async def get_chat_response_stream(self, chat_id: str, query: str, user_id: Optional[str] = None):
         """
         Stream response from the GPT model.
         :param chat_id: The chat ID
@@ -352,9 +353,9 @@ class OpenAIHelper:
         :return: The answer from the model and the number of tokens used, or 'not_finished'
         """
         plugins_used = ()
-        response = await self.__common_get_chat_response(chat_id, query, stream=True)
+        response = await self.__common_get_chat_response(chat_id, query, stream=True, user_id=user_id)
         if self.config['enable_functions'] and not self.conversations_vision[chat_id]:
-            response, plugins_used = await self.__handle_function_call(chat_id, response, stream=True)
+            response, plugins_used = await self.__handle_function_call(chat_id, response, stream=True, user_id=user_id)
             if is_direct_result(response):
                 yield response, '0'
                 return
@@ -397,11 +398,12 @@ class OpenAIHelper:
         wait=wait_exponential_jitter(),
         stop=stop_after_attempt(5),
     )
-    async def __common_get_chat_response(self, chat_id: str, query: str, stream=False):
+    async def __common_get_chat_response(self, chat_id: str, query: str, stream=False, user_id: Optional[str] = None):
         """
         Request a response from the GPT model.
         :param chat_id: The chat ID
         :param query: The query to send to the model
+        :param user_id: The user ID for tracking
         :return: The answer from the model and the number of tokens used
         """
         bot_language = self.config['bot_language']
@@ -421,7 +423,7 @@ class OpenAIHelper:
             if exceeded_max_tokens or exceeded_max_history_size:
                 logging.info(f'Chat history for chat ID {chat_id} is too long. Summarising...')
                 try:
-                    summary = await self.__summarise(self.conversations[chat_id][:-1])
+                    summary = await self.__summarise(self.conversations[chat_id][:-1], user_id)
                     logging.debug(f'Summary: {summary}')
                     await self.reset_chat_history(chat_id, self.conversations[chat_id][0]['content'])
                     await self.__add_to_history(chat_id, role='assistant', content=summary)
@@ -440,6 +442,7 @@ class OpenAIHelper:
                 'messages': self.conversations[chat_id],
                 'max_tokens': self.config['max_output_tokens'],
                 'stream': stream,
+                'user': user_id,
             }
 
             if common_args['model'] not in GPT_SEARCH_MODELS:
@@ -477,7 +480,7 @@ class OpenAIHelper:
         except Exception as e:
             raise Exception(f"⚠️ _{localized_text('error', bot_language)}._ ⚠️\n{str(e)}") from e
 
-    async def __handle_function_call(self, chat_id, response, stream=False, times=0, plugins_used=()):
+    async def __handle_function_call(self, chat_id, response, stream=False, times=0, plugins_used=(), user_id: Optional[str] = None):
         # FIXME misses correct count of tokens on chained function calls
         function_name = ''
         arguments = ''
@@ -534,8 +537,9 @@ class OpenAIHelper:
             function_call='auto' if times < self.config['functions_max_consecutive_calls'] else 'none',
             stream=stream,
             stream_options={'include_usage': True},
+            user=user_id,
         )
-        return await self.__handle_function_call(chat_id, response, stream, times + 1, plugins_used)
+        return await self.__handle_function_call(chat_id, response, stream, times + 1, plugins_used, user_id)
 
     async def generate_image(
         self,
@@ -543,6 +547,7 @@ class OpenAIHelper:
         style: Optional[str] = None,
         image_to_edit: Optional[io.BytesIO] = None,
         quality: Optional[str] = None,
+        user_id: Optional[str] = None,
     ) -> tuple[bytes, str, str]:
         """
         Generates an image from the given prompt using DALL·E or GPT model.
@@ -550,6 +555,7 @@ class OpenAIHelper:
         :param style: The style to use for the image
         :param image_to_edit: The image to edit
         :param quality: The quality of the image
+        :param user_id: The user ID for tracking
         :return: The image URL and the image size
         """
         bot_language = self.config['bot_language']
@@ -562,6 +568,7 @@ class OpenAIHelper:
             'style': style or self.config['image_style'],
             'size': self.config['image_size'],
             'response_format': 'b64_json',
+            'user': user_id,
         }
         if image_model.startswith('gpt'):
             generate_kwargs = {
@@ -571,6 +578,7 @@ class OpenAIHelper:
                 'moderation': 'low',
                 'quality': quality or self.config['image_quality'],
                 'size': self.config['image_size'],
+                'user': user_id,
             }
             if image_to_edit:
                 del generate_kwargs['moderation']
@@ -643,7 +651,7 @@ class OpenAIHelper:
         wait=wait_exponential_jitter(),
         stop=stop_after_attempt(5),
     )
-    async def __common_get_chat_response_vision(self, chat_id: int, content: list, stream=False):
+    async def __common_get_chat_response_vision(self, chat_id: int, content: list, stream=False, user_id: Optional[str] = None):
         """
         Request a response from the GPT model.
         :param chat_id: The chat ID
@@ -680,7 +688,7 @@ class OpenAIHelper:
                 logging.info(f'Chat history for chat ID {chat_id} is too long. Summarising...')
                 try:
                     last = self.conversations[chat_id][-1]
-                    summary = await self.__summarise(self.conversations[chat_id][:-1])
+                    summary = await self.__summarise(self.conversations[chat_id][:-1], user_id)
                     logging.debug(f'Summary: {summary}')
                     await self.reset_chat_history(chat_id, self.conversations[chat_id][0]['content'])
                     await self.__add_to_history(chat_id, role='assistant', content=summary)
@@ -702,6 +710,7 @@ class OpenAIHelper:
                 'presence_penalty': self.config['presence_penalty'],
                 'frequency_penalty': self.config['frequency_penalty'],
                 'stream': stream,
+                'user': user_id,
             }
 
             if stream:
@@ -726,7 +735,7 @@ class OpenAIHelper:
         except Exception as e:
             raise Exception(f"⚠️ _{localized_text('error', bot_language)}._ ⚠️\n{str(e)}") from e
 
-    async def interpret_image(self, chat_id, fileobj, prompt=None):
+    async def interpret_image(self, chat_id, fileobj, prompt=None, user_id: Optional[str] = None):
         """
         Interprets a given PNG image file using the Vision model.
         """
@@ -741,7 +750,7 @@ class OpenAIHelper:
             },
         ]
 
-        response = await self.__common_get_chat_response_vision(chat_id, content)
+        response = await self.__common_get_chat_response_vision(chat_id, content, user_id=user_id)
 
         # functions are not available for this model
 
@@ -782,7 +791,7 @@ class OpenAIHelper:
 
         return answer, response.usage.total_tokens
 
-    async def interpret_image_stream(self, chat_id, fileobj, prompt=None):
+    async def interpret_image_stream(self, chat_id, fileobj, prompt=None, user_id: Optional[str] = None):
         """
         Interprets a given PNG image file using the Vision model.
         """
@@ -797,7 +806,7 @@ class OpenAIHelper:
             },
         ]
 
-        response = await self.__common_get_chat_response_vision(chat_id, content, stream=True)
+        response = await self.__common_get_chat_response_vision(chat_id, content, stream=True, user_id=user_id)
 
         # if self.config['enable_functions']:
         #     response, plugins_used = await self.__handle_function_call(chat_id, response, stream=True)
@@ -897,7 +906,7 @@ class OpenAIHelper:
         """
         return self.conversations_costs.get(chat_id, 0)
 
-    async def __summarise(self, conversation) -> str:
+    async def __summarise(self, conversation, user_id: Optional[str] = None) -> str:
         """
         Summarises the conversation history.
         :param conversation: The conversation history
@@ -911,7 +920,7 @@ class OpenAIHelper:
             {'role': 'user', 'content': str(conversation)},
         ]
         response = await self.client.chat.completions.create(
-            model=self.config['model'], messages=messages, temperature=0.4
+            model=self.config['model'], messages=messages, temperature=0.4, user=user_id
         )
         return response.choices[0].message.content
 

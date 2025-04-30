@@ -555,7 +555,7 @@ class ChatGPTTelegramBot:
         async def _generate():
             try:
                 image_bytes, image_size, price = await self.openai.generate_image(
-                    prompt=image_query, style=style, image_to_edit=image_to_edit
+                    prompt=image_query, style=style, image_to_edit=image_to_edit, user_id=str(user_id)
                 )
 
                 prompt_id = str(uuid4())
@@ -646,7 +646,7 @@ class ChatGPTTelegramBot:
         async def _generate():
             try:
                 quality_param = 'high' if target_quality == 'high' else 'medium'
-                image_bytes, image_size, price = await self.openai.generate_image(prompt=prompt, quality=quality_param)
+                image_bytes, image_size, price = await self.openai.generate_image(prompt=prompt, quality=quality_param, user_id=str(user_id))
 
                 # Add username to price caption
                 username = query.from_user.username or query.from_user.first_name
@@ -837,7 +837,7 @@ class ChatGPTTelegramBot:
                 else:
                     # Get the response of the transcript
                     response, total_tokens = await self.openai.get_chat_response(
-                        chat_id=ai_context_id, query=transcript
+                        chat_id=ai_context_id, query=transcript, user_id=str(user_id)
                     )
 
                     self.usage[user_id].add_chat_tokens(total_tokens, self.config['token_price'])
@@ -973,7 +973,7 @@ class ChatGPTTelegramBot:
 
             if self.config['stream']:
                 stream_response = self.openai.interpret_image_stream(
-                    chat_id=ai_context_id, fileobj=temp_file_png, prompt=prompt
+                    chat_id=ai_context_id, fileobj=temp_file_png, prompt=prompt, user_id=str(user_id)
                 )
                 i = 0
                 prev = ''
@@ -1067,7 +1067,7 @@ class ChatGPTTelegramBot:
             else:
                 try:
                     interpretation, total_tokens = await self.openai.interpret_image(
-                        ai_context_id, temp_file_png, prompt=prompt
+                        ai_context_id, temp_file_png, prompt=prompt, user_id=str(user_id)
                     )
 
                     try:
@@ -1163,7 +1163,7 @@ class ChatGPTTelegramBot:
                     message_thread_id=get_forum_thread_id(update),
                 )
 
-                stream_response = self.openai.get_chat_response_stream(chat_id=ai_context_id, query=prompt)
+                stream_response = self.openai.get_chat_response_stream(chat_id=ai_context_id, query=prompt, user_id=str(user_id))
                 i = 0
                 prev = ''
                 sent_message = None
@@ -1257,7 +1257,7 @@ class ChatGPTTelegramBot:
 
                 async def _reply():
                     nonlocal total_tokens
-                    response, total_tokens = await self.openai.get_chat_response(chat_id=ai_context_id, query=prompt)
+                    response, total_tokens = await self.openai.get_chat_response(chat_id=ai_context_id, query=prompt, user_id=str(user_id))
 
                     if is_direct_result(response):
                         return await handle_direct_result(self.config, update, response, self.save_reply)
@@ -1394,7 +1394,7 @@ class ChatGPTTelegramBot:
 
         try:
             if self.config['stream']:
-                stream_response = self.openai.get_chat_response_stream(chat_id=str(user_id), query=query)
+                stream_response = self.openai.get_chat_response_stream(chat_id=str(user_id), query=query, user_id=str(user_id))
                 i = 0
                 prev = ''
                 backoff = 0
@@ -1474,7 +1474,7 @@ class ChatGPTTelegramBot:
                     parse_mode=constants.ParseMode.MARKDOWN,
                 )
 
-                response, total_tokens = await self.openai.get_chat_response(chat_id=str(user_id), query=query)
+                response, total_tokens = await self.openai.get_chat_response(chat_id=str(user_id), query=query, user_id=str(user_id))
 
                 if is_direct_result(response):
                     logging.info('Received direct result, not supported in inline mode')
