@@ -870,10 +870,6 @@ class OpenAIHelper:
         self.conversations_vision[chat_id] = False
         self.conversations_costs[chat_id] = 0
 
-        # Clean up the lock if it exists
-        if chat_id in self.conversation_locks:
-            del self.conversation_locks[chat_id]
-
         await self.init_conv_in_db(chat_id)
         await self.add_conv_in_db(chat_id, 'system', content)
 
