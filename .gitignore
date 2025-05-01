@@ -2,6 +2,6 @@ __pycache__
 /.idea
 .env
 .DS_Store
-/usage_logs
+usage_logs
 venv
 /.cache

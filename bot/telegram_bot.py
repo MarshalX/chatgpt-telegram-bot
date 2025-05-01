@@ -572,7 +572,7 @@ class ChatGPTTelegramBot:
                 prompt_id = str(uuid4())
                 self.image_prompts_cache[prompt_id] = image_query
                 self.image_quality_cache[prompt_id] = {'highest': 'low'}
-                
+
                 # Store image_to_edit in cache if it exists
                 if image_to_edit:
                     # Create a copy of the image data for later use
@@ -654,7 +654,7 @@ class ChatGPTTelegramBot:
             return
 
         prompt = self.image_prompts_cache[prompt_id]
-        
+
         # Get image_to_edit from cache if it exists
         image_to_edit = None
         if prompt_id in self.image_to_edit_cache:
