@@ -290,63 +290,62 @@ class OpenAIHelper:
         :param user_id: The user ID for tracking
         :return: The answer from the model and the number of tokens used
         """
-        async with self.get_conversation_lock(chat_id):
-            plugins_used = ()
-            response = await self.__common_get_chat_response(chat_id, query, user_id)
-            if self.config['enable_functions'] and not self.conversations_vision[chat_id]:
-                response, plugins_used = await self.__handle_function_call(chat_id, response, user_id=user_id)
-                if is_direct_result(response):
-                    return response, 0
+        plugins_used = ()
+        response = await self.__common_get_chat_response(chat_id, query, user_id)
+        if self.config['enable_functions'] and not self.conversations_vision[chat_id]:
+            response, plugins_used = await self.__handle_function_call(chat_id, response, user_id=user_id)
+            if is_direct_result(response):
+                return response, 0
 
-            answer = ''
+        answer = ''
 
-            if len(response.choices) > 1 and self.config['n_choices'] > 1:
-                for index, choice in enumerate(response.choices):
-                    content = choice.message.content.strip()
-                    if index == 0:
-                        await self.__add_to_history(chat_id, role='assistant', content=content)
-                    answer += f'{index + 1}\u20e3\n'
-                    answer += content
-                    answer += '\n\n'
-            else:
-                message = response.choices[0].message
-                answer = message.content.strip()
+        if len(response.choices) > 1 and self.config['n_choices'] > 1:
+            for index, choice in enumerate(response.choices):
+                content = choice.message.content.strip()
+                if index == 0:
+                    await self.__add_to_history(chat_id, role='assistant', content=content)
+                answer += f'{index + 1}\u20e3\n'
+                answer += content
+                answer += '\n\n'
+        else:
+            message = response.choices[0].message
+            answer = message.content.strip()
 
-                if self.config['web_search_support_annotations'] and message.annotations:
-                    citations = []
-                    offset = 0  # Keep track of how much we've shifted the text
-                    for i, annotation in enumerate(message.annotations):
-                        start = annotation.url_citation.start_index + offset
-                        end = annotation.url_citation.end_index + offset
+            if self.config['web_search_support_annotations'] and message.annotations:
+                citations = []
+                offset = 0  # Keep track of how much we've shifted the text
+                for i, annotation in enumerate(message.annotations):
+                    start = annotation.url_citation.start_index + offset
+                    end = annotation.url_citation.end_index + offset
 
-                        # Insert citation reference number
-                        citation_text = f'\[{i}]'
-                        answer = answer[:start] + citation_text + answer[end:]
+                    # Insert citation reference number
+                    citation_text = f'\[{i}]'
+                    answer = answer[:start] + citation_text + answer[end:]
 
-                        # Update offset for next citation
-                        offset += len(citation_text) - (end - start)
+                    # Update offset for next citation
+                    offset += len(citation_text) - (end - start)
 
-                        citations.append(f'- \[{i}] [{annotation.url_citation.title}]({annotation.url_citation.url})')
-                    if citations:
-                        answer += '\n\n🌐 References:\n' + '\n'.join(citations)
+                    citations.append(f'- \[{i}] [{annotation.url_citation.title}]({annotation.url_citation.url})')
+                if citations:
+                    answer += '\n\n🌐 References:\n' + '\n'.join(citations)
 
-                await self.__add_to_history(chat_id, role='assistant', content=answer)
+            await self.__add_to_history(chat_id, role='assistant', content=answer)
 
-            show_plugins_used = len(plugins_used) > 0 and self.config['show_plugins_used']
-            plugin_names = tuple(self.plugin_manager.get_plugin_source_name(plugin) for plugin in plugins_used)
-            if self.config['show_usage']:
-                cost = get_model_cost(self.config['model'], response.usage)
-                self.add_cost(chat_id, cost)
+        show_plugins_used = len(plugins_used) > 0 and self.config['show_plugins_used']
+        plugin_names = tuple(self.plugin_manager.get_plugin_source_name(plugin) for plugin in plugins_used)
+        if self.config['show_usage']:
+            cost = get_model_cost(self.config['model'], response.usage)
+            self.add_cost(chat_id, cost)
 
-                price = get_formatted_price(self.get_cost(chat_id))
-                answer += f'\n\n---\nID: {chat_id[-2:]} {price}'
+            price = get_formatted_price(self.get_cost(chat_id))
+            answer += f'\n\n---\nID: {chat_id[-2:]} {price}'
 
-                if show_plugins_used:
-                    answer += f"\n🔌 {', '.join(plugin_names)}"
-            elif show_plugins_used:
-                answer += f"\n\n---\n🔌 {', '.join(plugin_names)}"
+            if show_plugins_used:
+                answer += f"\n🔌 {', '.join(plugin_names)}"
+        elif show_plugins_used:
+            answer += f"\n\n---\n🔌 {', '.join(plugin_names)}"
 
-            return answer, response.usage.total_tokens
+        return answer, response.usage.total_tokens
 
     async def get_chat_response_stream(self, chat_id: str, query: str, user_id: Optional[str] = None):
         """
@@ -355,48 +354,45 @@ class OpenAIHelper:
         :param query: The query to send to the model
         :return: The answer from the model and the number of tokens used, or 'not_finished'
         """
-        async with self.get_conversation_lock(chat_id):
-            plugins_used = ()
-            response = await self.__common_get_chat_response(chat_id, query, stream=True, user_id=user_id)
-            if self.config['enable_functions'] and not self.conversations_vision[chat_id]:
-                response, plugins_used = await self.__handle_function_call(
-                    chat_id, response, stream=True, user_id=user_id
-                )
-                if is_direct_result(response):
-                    yield response, '0'
-                    return
+        plugins_used = ()
+        response = await self.__common_get_chat_response(chat_id, query, stream=True, user_id=user_id)
+        if self.config['enable_functions'] and not self.conversations_vision[chat_id]:
+            response, plugins_used = await self.__handle_function_call(chat_id, response, stream=True, user_id=user_id)
+            if is_direct_result(response):
+                yield response, '0'
+                return
 
-            answer = ''
-            last_chunk = None
-            async for chunk in response:
-                last_chunk = chunk
-                if len(chunk.choices) == 0:
-                    continue
-                delta = chunk.choices[0].delta
-                if delta.content:
-                    answer += delta.content
-                    yield answer, 'not_finished'
+        answer = ''
+        last_chunk = None
+        async for chunk in response:
+            last_chunk = chunk
+            if len(chunk.choices) == 0:
+                continue
+            delta = chunk.choices[0].delta
+            if delta.content:
+                answer += delta.content
+                yield answer, 'not_finished'
 
-            answer = answer.strip()
-            await self.__add_to_history(chat_id, role='assistant', content=answer)
+        answer = answer.strip()
+        await self.__add_to_history(chat_id, role='assistant', content=answer)
 
-            usage = last_chunk.usage
+        usage = last_chunk.usage
 
-            show_plugins_used = len(plugins_used) > 0 and self.config['show_plugins_used']
-            plugin_names = tuple(self.plugin_manager.get_plugin_source_name(plugin) for plugin in plugins_used)
-            if self.config['show_usage']:
-                cost = get_model_cost(self.config['model'], usage)
-                self.add_cost(chat_id, cost)
+        show_plugins_used = len(plugins_used) > 0 and self.config['show_plugins_used']
+        plugin_names = tuple(self.plugin_manager.get_plugin_source_name(plugin) for plugin in plugins_used)
+        if self.config['show_usage']:
+            cost = get_model_cost(self.config['model'], usage)
+            self.add_cost(chat_id, cost)
 
-                price = get_formatted_price(self.get_cost(chat_id))
-                answer += f'\n\n---\nID: {chat_id[-2:]} {price}'
+            price = get_formatted_price(self.get_cost(chat_id))
+            answer += f'\n\n---\nID: {chat_id[-2:]} {price}'
 
-                if show_plugins_used:
-                    answer += f"\n🔌 {', '.join(plugin_names)}"
-            elif show_plugins_used:
-                answer += f"\n\n---\n🔌 {', '.join(plugin_names)}"
+            if show_plugins_used:
+                answer += f"\n🔌 {', '.join(plugin_names)}"
+        elif show_plugins_used:
+            answer += f"\n\n---\n🔌 {', '.join(plugin_names)}"
 
-            yield answer, usage.total_tokens
+        yield answer, usage.total_tokens
 
     def get_conversation_lock(self, chat_id: str) -> asyncio.Lock:
         """

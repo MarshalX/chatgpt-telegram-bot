@@ -10,6 +10,7 @@ from typing import Optional
 from uuid import uuid4
 
 import asyncpg
+from decorators import with_conversation_lock
 from openai_helper import OpenAIHelper, localized_text
 from PIL import Image
 from pydub import AudioSegment
@@ -890,6 +891,7 @@ class ChatGPTTelegramBot:
 
         await wrap_with_indicator(update, context, _execute, constants.ChatAction.TYPING)
 
+    @with_conversation_lock
     async def vision(self, update: Update, context: ContextTypes.DEFAULT_TYPE, reply: Message = None):
         """
         Interpret image using vision model.
@@ -1124,6 +1126,7 @@ class ChatGPTTelegramBot:
 
         await wrap_with_indicator(update, context, _execute, constants.ChatAction.TYPING)
 
+    @with_conversation_lock
     async def prompt(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """
         React to incoming messages and respond accordingly.
