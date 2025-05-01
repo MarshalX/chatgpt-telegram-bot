@@ -129,6 +129,7 @@ class ChatGPTTelegramBot:
         self.inline_queries_cache = {}
         self.image_prompts_cache = {}  # Cache for storing image prompts
         self.image_quality_cache = {}
+        self.image_to_edit_cache = {}  # Cache for storing image to edit data
         self.replies_tracker = {}
         self.pending_quality_confirmations = {}  # Store pending confirmations
 
@@ -571,6 +572,13 @@ class ChatGPTTelegramBot:
                 prompt_id = str(uuid4())
                 self.image_prompts_cache[prompt_id] = image_query
                 self.image_quality_cache[prompt_id] = {'highest': 'low'}
+                
+                # Store image_to_edit in cache if it exists
+                if image_to_edit:
+                    # Create a copy of the image data for later use
+                    image_to_edit.seek(0)
+                    image_copy = io.BytesIO(image_to_edit.read())
+                    self.image_to_edit_cache[prompt_id] = image_copy
 
                 # Add username to price caption
                 username = update.message.from_user.username or update.message.from_user.first_name
@@ -646,6 +654,13 @@ class ChatGPTTelegramBot:
             return
 
         prompt = self.image_prompts_cache[prompt_id]
+        
+        # Get image_to_edit from cache if it exists
+        image_to_edit = None
+        if prompt_id in self.image_to_edit_cache:
+            image_to_edit = self.image_to_edit_cache[prompt_id]
+            # Reset position to beginning of file
+            image_to_edit.seek(0)
 
         loading_keyboard = [[InlineKeyboardButton('⏳ Generating...', callback_data='loading')]]
         loading_markup = InlineKeyboardMarkup(loading_keyboard)
@@ -659,7 +674,7 @@ class ChatGPTTelegramBot:
 
                 quality_param = 'high' if target_quality == 'high' else 'medium'
                 image_bytes, image_size, price = await self.openai.generate_image(
-                    prompt=prompt, quality=quality_param, user_id=str(user_id)
+                    prompt=prompt, quality=quality_param, image_to_edit=image_to_edit, user_id=str(user_id)
                 )
 
                 # Add username to price caption
