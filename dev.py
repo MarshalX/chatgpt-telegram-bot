@@ -1,5 +1,4 @@
 import logging
-import os
 import subprocess
 import sys
 import time
@@ -9,11 +8,8 @@ from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+
 
 class BotReloader(FileSystemEventHandler):
     def __init__(self):
@@ -26,15 +22,15 @@ class BotReloader(FileSystemEventHandler):
         """Start the bot process"""
         if self.process:
             self.stop_bot()
-        
-        logging.info("Starting bot...")
-        self.process = subprocess.Popen([sys.executable, "bot/main.py"])
+
+        logging.info('Starting bot...')
+        self.process = subprocess.Popen([sys.executable, 'bot/main.py'])
         self.last_restart = time.time()
 
     def stop_bot(self):
         """Stop the bot process"""
         if self.process:
-            logging.info("Stopping bot...")
+            logging.info('Stopping bot...')
             self.process.terminate()
             self.process.wait()
             self.process = None
@@ -44,8 +40,8 @@ class BotReloader(FileSystemEventHandler):
         current_time = time.time()
         if current_time - self.last_restart < self.restart_delay:
             return
-        
-        logging.info("Restarting bot...")
+
+        logging.info('Restarting bot...')
         self.start_bot()
 
     def on_modified(self, event):
@@ -54,11 +50,12 @@ class BotReloader(FileSystemEventHandler):
 
         # Only restart on Python file changes
         if Path(event.src_path).suffix == '.py':
-            logging.info(f"Detected change in {event.src_path}")
+            logging.info(f'Detected change in {event.src_path}')
             self.restart_bot()
 
     def __del__(self):
         self.stop_bot()
+
 
 def main():
     # Create an observer and reloader
@@ -73,11 +70,12 @@ def main():
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
-        logging.info("Stopping development server...")
+        logging.info('Stopping development server...')
         observer.stop()
         reloader.stop_bot()
-    
+
     observer.join()
 
-if __name__ == "__main__":
-    main() 
+
+if __name__ == '__main__':
+    main()

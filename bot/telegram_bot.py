@@ -5,9 +5,9 @@ import io
 import logging
 import os
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Optional
 from uuid import uuid4
-from datetime import datetime
 
 import asyncpg
 from openai_helper import OpenAIHelper, localized_text
@@ -30,13 +30,12 @@ from telegram.error import BadRequest, RetryAfter, TimedOut
 from telegram.ext import (
     Application,
     ApplicationBuilder,
-    CallbackContext,
     CallbackQueryHandler,
+    ChosenInlineResultHandler,
     CommandHandler,
     ContextTypes,
     InlineQueryHandler,
     MessageHandler,
-    ChosenInlineResultHandler,
     filters,
 )
 from usage_tracker import UsageTracker
@@ -378,20 +377,28 @@ class ChatGPTTelegramBot:
         keyboard.append(row)
         # Add improve button if not at highest
         if highest == 'low':
-            keyboard.append([
-                InlineKeyboardButton('🖼️ Improve to Medium Quality ($0.1)', callback_data=f'improve_quality:{prompt_id}:medium')
-            ])
+            keyboard.append(
+                [
+                    InlineKeyboardButton(
+                        '🖼️ Improve to Medium Quality ($0.1)', callback_data=f'improve_quality:{prompt_id}:medium'
+                    )
+                ]
+            )
         elif highest == 'medium':
-            keyboard.append([
-                InlineKeyboardButton('❗ Request High Quality Upgrade ($0.2)', callback_data=f'confirm_quality:{prompt_id}:high')
-            ])
+            keyboard.append(
+                [
+                    InlineKeyboardButton(
+                        '❗ Request High Quality Upgrade ($0.2)', callback_data=f'confirm_quality:{prompt_id}:high'
+                    )
+                ]
+            )
         return InlineKeyboardMarkup(keyboard)
 
     def _get_confirmation_markup(self, prompt_id):
         keyboard = [
             [
                 InlineKeyboardButton('❌ Cancel', callback_data=f'cancel_quality:{prompt_id}'),
-                InlineKeyboardButton('✅ Confirm ($0.2)', callback_data=f'improve_quality:{prompt_id}:high')
+                InlineKeyboardButton('✅ Confirm ($0.2)', callback_data=f'improve_quality:{prompt_id}:high'),
             ],
         ]
         return InlineKeyboardMarkup(keyboard)
@@ -440,22 +447,22 @@ class ChatGPTTelegramBot:
         parts = query.data.split(':')
         prompt_id = parts[1]
         target_quality = parts[2]
-        
+
         confirmation_text = (
-            "⚠️ Premium Feature: High Quality Generation\n"
-            "Cost: $0.2 (= 4 medium quality images)\n\n"
-            "High quality images provide:\n"
-            "• 1024x1024 resolution\n"
-            "• Enhanced details and clarity\n"
-            "• Better handling of complex scenes\n\n"
-            "Are you sure you want to proceed?"
+            '⚠️ Premium Feature: High Quality Generation\n'
+            'Cost: $0.2 (= 4 medium quality images)\n\n'
+            'High quality images provide:\n'
+            '• 1024x1024 resolution\n'
+            '• Enhanced details and clarity\n'
+            '• Better handling of complex scenes\n\n'
+            'Are you sure you want to proceed?'
         )
 
         # Store the confirmation state
         self.pending_quality_confirmations[prompt_id] = {
             'user_id': query.from_user.id,
             'timestamp': datetime.now(),
-            'target_quality': target_quality
+            'target_quality': target_quality,
         }
 
         # Update the message with confirmation dialog
@@ -463,7 +470,7 @@ class ChatGPTTelegramBot:
             chat_id=query.message.chat_id,
             message_id=query.message.message_id,
             caption=confirmation_text,
-            reply_markup=self._get_confirmation_markup(prompt_id)
+            reply_markup=self._get_confirmation_markup(prompt_id),
         )
 
     async def handle_quality_cancel(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -483,7 +490,7 @@ class ChatGPTTelegramBot:
             chat_id=query.message.chat_id,
             message_id=query.message.message_id,
             caption=original_caption,
-            reply_markup=self._get_quality_reply_markup(prompt_id)
+            reply_markup=self._get_quality_reply_markup(prompt_id),
         )
 
     async def image_natural(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -546,13 +553,15 @@ class ChatGPTTelegramBot:
             )
             return
 
+        user_id = update.message.from_user.id
+
         action_msg = 'EDITING' if image_to_edit else 'GENERATING'
         logging.info(
-            f'New image {action_msg} request received from user {update.message.from_user.name} '
-            f'(id: {update.message.from_user.id})'
+            f'New image {action_msg} request received from user {update.message.from_user.name} ' f'(id: {user_id})'
         )
 
         async def _generate():
+            nonlocal user_id
             try:
                 image_bytes, image_size, price = await self.openai.generate_image(
                     prompt=image_query, style=style, image_to_edit=image_to_edit, user_id=str(user_id)
@@ -564,7 +573,7 @@ class ChatGPTTelegramBot:
 
                 # Add username to price caption
                 username = update.message.from_user.username or update.message.from_user.first_name
-                price_with_user = f"{price}\n\nby @{username}"
+                price_with_user = f'{price}\n\nby @{username}'
 
                 reply_markup = self._get_quality_reply_markup(prompt_id)
                 sent_msg = None
@@ -645,12 +654,16 @@ class ChatGPTTelegramBot:
 
         async def _generate():
             try:
+                user_id = query.from_user.id
+
                 quality_param = 'high' if target_quality == 'high' else 'medium'
-                image_bytes, image_size, price = await self.openai.generate_image(prompt=prompt, quality=quality_param, user_id=str(user_id))
+                image_bytes, image_size, price = await self.openai.generate_image(
+                    prompt=prompt, quality=quality_param, user_id=str(user_id)
+                )
 
                 # Add username to price caption
                 username = query.from_user.username or query.from_user.first_name
-                price_with_user = f"{price}\n\nby @{username}"
+                price_with_user = f'{price}\n\nby @{username}'
 
                 self.image_quality_cache[prompt_id]['highest'] = quality_param
 
@@ -1163,7 +1176,9 @@ class ChatGPTTelegramBot:
                     message_thread_id=get_forum_thread_id(update),
                 )
 
-                stream_response = self.openai.get_chat_response_stream(chat_id=ai_context_id, query=prompt, user_id=str(user_id))
+                stream_response = self.openai.get_chat_response_stream(
+                    chat_id=ai_context_id, query=prompt, user_id=str(user_id)
+                )
                 i = 0
                 prev = ''
                 sent_message = None
@@ -1257,7 +1272,9 @@ class ChatGPTTelegramBot:
 
                 async def _reply():
                     nonlocal total_tokens
-                    response, total_tokens = await self.openai.get_chat_response(chat_id=ai_context_id, query=prompt, user_id=str(user_id))
+                    response, total_tokens = await self.openai.get_chat_response(
+                        chat_id=ai_context_id, query=prompt, user_id=str(user_id)
+                    )
 
                     if is_direct_result(response):
                         return await handle_direct_result(self.config, update, response, self.save_reply)
@@ -1311,10 +1328,10 @@ class ChatGPTTelegramBot:
         query = update.inline_query.query
         user_id = update.inline_query.from_user.id
         name = update.inline_query.from_user.name
-        
+
         if len(query) < 3:
             return
-            
+
         if not await self.check_allowed_and_within_budget(update, context, is_inline=True):
             logging.warning(f'User {name} (id: {user_id}) not allowed or over budget')
             return
@@ -1333,23 +1350,22 @@ class ChatGPTTelegramBot:
             answer_tr = localized_text('answer', bot_language)
 
             placeholder_text = f'{message_content}\n\n_{answer_tr}:_\n{loading_tr}'
-            
+
             # Add a placeholder button
-            reply_markup = InlineKeyboardMarkup([[
-                InlineKeyboardButton("⏳ Generating...", callback_data="generating")
-            ]])
+            reply_markup = InlineKeyboardMarkup(
+                [[InlineKeyboardButton('⏳ Generating...', callback_data='generating')]]
+            )
 
             inline_query_result = InlineQueryResultArticle(
                 id=result_id,
                 title=localized_text('ask_chatgpt', bot_language),
                 input_message_content=InputTextMessageContent(
-                    placeholder_text,
-                    parse_mode=constants.ParseMode.MARKDOWN
+                    placeholder_text, parse_mode=constants.ParseMode.MARKDOWN
                 ),
                 description=message_content,
                 thumbnail_url='https://user-images.githubusercontent.com/11541888/223106202-7576ff11-2c8e-408d-94ea'
                 '-b02a7a32149a.png',
-                reply_markup=reply_markup
+                reply_markup=reply_markup,
             )
 
             await update.inline_query.answer([inline_query_result], cache_time=0)
@@ -1376,11 +1392,7 @@ class ChatGPTTelegramBot:
             logging.error(f'Query not found in cache for result_id: {result_id}')
             error_message = f'{localized_text("error", self.config["bot_language"])}. {localized_text("try_again", self.config["bot_language"])}'
             await edit_message_with_retry(
-                context,
-                chat_id=None,
-                message_id=inline_message_id,
-                text=error_message,
-                is_inline=True
+                context, chat_id=None, message_id=inline_message_id, text=error_message, is_inline=True
             )
             return
 
@@ -1394,7 +1406,9 @@ class ChatGPTTelegramBot:
 
         try:
             if self.config['stream']:
-                stream_response = self.openai.get_chat_response_stream(chat_id=str(user_id), query=query, user_id=str(user_id))
+                stream_response = self.openai.get_chat_response_stream(
+                    chat_id=str(user_id), query=query, user_id=str(user_id)
+                )
                 i = 0
                 prev = ''
                 backoff = 0
@@ -1426,7 +1440,7 @@ class ChatGPTTelegramBot:
                                 text=f'{query}\n\n{answer_tr}:\n{content}',
                                 is_inline=True,
                             )
-                        except Exception as e:
+                        except Exception:
                             continue
 
                     elif abs(len(content) - len(prev)) > cutoff or tokens != 'not_finished':
@@ -1456,7 +1470,7 @@ class ChatGPTTelegramBot:
                             backoff += 5
                             await asyncio.sleep(0.5)
                             continue
-                        except Exception as e:
+                        except Exception:
                             backoff += 5
                             continue
 
@@ -1474,7 +1488,9 @@ class ChatGPTTelegramBot:
                     parse_mode=constants.ParseMode.MARKDOWN,
                 )
 
-                response, total_tokens = await self.openai.get_chat_response(chat_id=str(user_id), query=query, user_id=str(user_id))
+                response, total_tokens = await self.openai.get_chat_response(
+                    chat_id=str(user_id), query=query, user_id=str(user_id)
+                )
 
                 if is_direct_result(response):
                     logging.info('Received direct result, not supported in inline mode')
