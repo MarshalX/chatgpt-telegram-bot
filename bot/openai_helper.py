@@ -558,7 +558,6 @@ class OpenAIHelper:
     async def generate_image(
         self,
         prompt: str,
-        style: Optional[str] = None,
         image_to_edit: Optional[io.BytesIO] = None,
         quality: Optional[str] = None,
         user_id: Optional[str] = None,
@@ -566,7 +565,6 @@ class OpenAIHelper:
         """
         Generates an image from the given prompt using DALL·E or GPT model.
         :param prompt: The prompt to send to the model
-        :param style: The style to use for the image
         :param image_to_edit: The image to edit
         :param quality: The quality of the image
         :param user_id: The user ID for tracking
@@ -575,28 +573,37 @@ class OpenAIHelper:
         bot_language = self.config['bot_language']
         image_model = self.config['image_model']
 
+        gpt_image_quality_to_dall_e_quality = {
+            'low': 'standard',
+            'medium': 'standard',
+            'high': 'hd',
+        }
+
         generate_kwargs = {
             'prompt': prompt,
             'model': image_model,
             'quality': quality or self.config['image_quality'],
-            'style': style or self.config['image_style'],
             'size': self.config['image_size'],
-            'response_format': 'b64_json',
             'user': user_id,
         }
-        if image_model.startswith('gpt'):
-            generate_kwargs = {
-                'prompt': prompt,
-                'model': image_model,
-                # TODO: move to config
-                'moderation': 'low',
-                'quality': quality or self.config['image_quality'],
-                'size': self.config['image_size'],
-                'user': user_id,
-            }
+
+        if image_model.startswith('dall'):
+            generate_kwargs.update(
+                {
+                    'quality': gpt_image_quality_to_dall_e_quality.get(quality, quality),
+                    'style': self.config.get('image_style'),
+                    'response_format': 'b64_json',
+                }
+            )
+        else:  # GPT Image
             if image_to_edit:
-                del generate_kwargs['moderation']
                 generate_kwargs['image'] = ('image_to_edit.jpeg', image_to_edit, 'image/jpeg')
+            else:
+                generate_kwargs.update(
+                    {
+                        'moderation': 'low',  # TODO: move to config
+                    }
+                )
 
         method = self.client.images.edit if image_to_edit else self.client.images.generate
 

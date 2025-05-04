@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import Optional
 from uuid import uuid4
+from venv import logger
 
 import asyncpg
 from decorators import with_conversation_lock
@@ -96,13 +97,7 @@ class ChatGPTTelegramBot:
         # If imaging is enabled, add the "image" command to the list
         if self.config.get('enable_image_generation', False):
             self.commands.append(
-                BotCommand(command='image', description='Generate VIVID styled image from prompt (e.g. /image cat)')
-            )
-            self.commands.append(
-                BotCommand(
-                    command='imagereal',
-                    description='Generate NATURAL styled image from prompt (e.g. /image cat)',
-                )
+                BotCommand(command='image', description='Generate image from prompt (e.g. /image cat)')
             )
 
         if self.config.get('enable_tts_generation', False):
@@ -390,7 +385,7 @@ class ChatGPTTelegramBot:
             keyboard.append(
                 [
                     InlineKeyboardButton(
-                        '❗ Request High Quality Upgrade ($0.2)', callback_data=f'confirm_quality:{prompt_id}:high'
+                        '❗ High Quality Upgrade ($0.2)', callback_data=f'confirm_quality:{prompt_id}:high'
                     )
                 ]
             )
@@ -495,29 +490,21 @@ class ChatGPTTelegramBot:
             reply_markup=self._get_quality_reply_markup(prompt_id),
         )
 
-    async def image_natural(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        return await self.image(update, context, style='natural')
-
-    async def image_vivid(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        return await self.image(update, context, style='vivid')
-
-    async def image(self, update: Update, context: ContextTypes.DEFAULT_TYPE, style: Optional[str] = None):
+    async def image(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """
-        Generates an image for the given prompt using DALL·E APIs
+        Generates an image for the given prompt using DALL·E or GPT Image APIs
         """
-        # if not self.config['enable_image_generation'] or not await self.check_allowed_and_within_budget(
-        #     update, context
-        # ):
-        #     return
+        if not self.config['enable_image_generation'] or not await self.check_allowed_and_within_budget(
+            update, context
+        ):
+            return
 
         bot_language = self.config['bot_language']
 
         if not has_image_gen_permission(self.config, update.message.from_user.id):
-            await update.effective_message.reply_text(
-                message_thread_id=get_forum_thread_id(update),
-                reply_to_message_id=get_reply_to_message_id(self.config, update),
-                text='Ну губа у тебя конечно не дура. Ген картинок дорогой',
-                parse_mode=constants.ParseMode.MARKDOWN,
+            logger.warning(
+                f'User {update.message.from_user.name} (id: {update.message.from_user.id}) '
+                'is not allowed to generate images'
             )
             return
 
@@ -566,13 +553,13 @@ class ChatGPTTelegramBot:
             nonlocal user_id
             try:
                 image_bytes, image_size, price = await self.openai.generate_image(
-                    prompt=image_query, style=style, image_to_edit=image_to_edit, user_id=str(user_id)
+                    prompt=image_query, image_to_edit=image_to_edit, user_id=str(user_id)
                 )
 
                 prompt_id = str(uuid4())
                 self.image_prompts_cache[prompt_id] = image_query
                 self.image_quality_cache[prompt_id] = {'highest': 'low'}
-                
+
                 # Store image_to_edit in cache if it exists
                 if image_to_edit:
                     # Create a copy of the image data for later use
@@ -585,7 +572,6 @@ class ChatGPTTelegramBot:
                 price_with_user = f'{price}\n\nby @{username}'
 
                 reply_markup = self._get_quality_reply_markup(prompt_id)
-                sent_msg = None
                 if self.config['image_receive_mode'] == 'photo':
                     sent_msg = await update.effective_message.reply_photo(
                         reply_to_message_id=get_reply_to_message_id(self.config, update),
@@ -654,12 +640,11 @@ class ChatGPTTelegramBot:
             return
 
         prompt = self.image_prompts_cache[prompt_id]
-        
+
         # Get image_to_edit from cache if it exists
         image_to_edit = None
         if prompt_id in self.image_to_edit_cache:
             image_to_edit = self.image_to_edit_cache[prompt_id]
-            # Reset position to beginning of file
             image_to_edit.seek(0)
 
         loading_keyboard = [[InlineKeyboardButton('⏳ Generating...', callback_data='loading')]]
@@ -683,7 +668,6 @@ class ChatGPTTelegramBot:
 
                 self.image_quality_cache[prompt_id]['highest'] = quality_param
 
-                sent_msg = None
                 reply_markup = self._get_quality_reply_markup(prompt_id)
                 if self.config['image_receive_mode'] == 'photo':
                     sent_msg = await context.bot.edit_message_media(
@@ -908,6 +892,9 @@ class ChatGPTTelegramBot:
 
     @with_conversation_lock
     async def vision(self, update: Update, context: ContextTypes.DEFAULT_TYPE, reply: Message = None):
+        await self._vision_no_lock(update, context, reply)
+
+    async def _vision_no_lock(self, update: Update, context: ContextTypes.DEFAULT_TYPE, reply: Message = None):
         """
         Interpret image using vision model.
         """
@@ -1162,7 +1149,7 @@ class ChatGPTTelegramBot:
         self.last_message[chat_id] = prompt
 
         if update.message.reply_to_message and update.message.reply_to_message.effective_attachment:
-            return await self.vision(update, context, update.message.reply_to_message)
+            return await self._vision_no_lock(update, context, update.message.reply_to_message)
 
         if is_group_chat(update):
             trigger_keyword = self.config['group_trigger_keyword']
@@ -1630,8 +1617,7 @@ class ChatGPTTelegramBot:
         )
 
         application.add_handler(CommandHandler('reset', self.reset))
-        application.add_handler(CommandHandler('image', self.image_vivid))
-        application.add_handler(CommandHandler('imagereal', self.image_natural))
+        application.add_handler(CommandHandler('image', self.image))
         application.add_handler(CommandHandler('tts', self.tts))
         # application.add_handler(CommandHandler('start', self.help))
         # application.add_handler(CommandHandler('stats', self.stats))
