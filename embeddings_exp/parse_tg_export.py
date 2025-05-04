@@ -7,6 +7,7 @@ from typing import Any, Dict, List
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 
 def parse_tg_export(filename: str) -> List[Dict[str, Any]]:
@@ -78,8 +79,7 @@ def parse_tg_export(filename: str) -> List[Dict[str, Any]]:
         messages.append({'user_id': user_id, 'username': username, 'timestamp': timestamp, 'text': message_text})
         processed_count += 1
 
-        # Log progress for every 1000 messages
-        if processed_count % 1000 == 0:
+        if processed_count % 100000 == 0:
             logger.info(f'Processed {processed_count} messages...')
 
     end_time = time.time()

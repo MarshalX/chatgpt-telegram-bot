@@ -35,20 +35,23 @@ def print_result(result):
             print('-' * 60)
             continue
 
-        print(f"{i}. [{payload.get('username', 'Unknown')}] {payload.get('text', '')}")
-        print(f"   user_id: {payload.get('user_id')}, timestamp: {payload.get('timestamp')}")
-        print(f'   Score: {score:.4f}')
+        print(f"{i}. {payload.get('text', '')}")
+        # print(f"{i}. [{payload.get('username', 'Unknown')}] {payload.get('text', '')}")
+        # print(f"   user_id: {payload.get('user_id')}, timestamp: {payload.get('timestamp')}")
+        print(f'Score: {score:.4f}')
         print('-' * 60)
 
 
 def main():
     # Connect to Qdrant
     client = QdrantClient(host='localhost', port=6333)
-    collection_name = 'telegram_chat_embeddings'
+    # collection_name = 'telegram_chat_embeddings'
+    collection_name = 'telegram_conversation_embeddings'
 
     # Load the same embedding model as used for indexing
     print('Loading embedding model...')
-    model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
+    # model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
+    model = SentenceTransformer('intfloat/multilingual-e5-large-instruct')
 
     print("Qdrant CLI search. Type your query and press Enter. Type 'exit' to quit.")
     while True:
@@ -69,7 +72,9 @@ def main():
 
         # Search in Qdrant
         try:
-            hits = client.query_points(collection_name=collection_name, query=query_vector, limit=10, with_payload=True)
+            hits = client.query_points(
+                collection_name=collection_name, query=query_vector, limit=5, with_payload=True, score_threshold=0.5
+            )
             # Debug output to see what we got
             # print(f"Type of hits: {type(hits)}")
             # print(f"Structure of hits: {hits}")
