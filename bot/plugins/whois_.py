@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, List
 
 import whois
 
@@ -13,15 +13,20 @@ class WhoisPlugin(Plugin):
     def get_source_name(self) -> str:
         return 'Whois'
 
-    def get_spec(self) -> [Dict]:
+    def get_spec(self) -> List[Dict]:
         return [
             {
-                'name': 'get_whois',
-                'description': 'Get whois registration and expiry information for a domain',
-                'parameters': {
-                    'type': 'object',
-                    'properties': {'domain': {'type': 'string', 'description': 'Domain name'}},
-                    'required': ['domain'],
+                'type': 'function',
+                'function': {
+                    'name': 'get_whois',
+                    'description': 'Get whois registration and expiry information for a domain',
+                    'parameters': {
+                        'type': 'object',
+                        'properties': {'domain': {'type': 'string', 'description': 'Domain name'}},
+                        'required': ['domain'],
+                        'additionalProperties': False,
+                    },
+                    'strict': True,
                 },
             }
         ]

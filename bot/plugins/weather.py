@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Dict
+from typing import Dict, List
 
 import httpx
 
@@ -14,7 +14,7 @@ class WeatherPlugin(Plugin):
     def get_source_name(self) -> str:
         return 'OpenMeteo'
 
-    def get_spec(self) -> [Dict]:
+    def get_spec(self) -> List[Dict]:
         latitude_param = {'type': 'string', 'description': 'Latitude of the location'}
         longitude_param = {'type': 'string', 'description': 'Longitude of the location'}
         unit_param = {
@@ -24,35 +24,45 @@ class WeatherPlugin(Plugin):
         }
         return [
             {
-                'name': 'get_current_weather',
-                'description': 'Get the current weather for a location using Open Meteo APIs.',
-                'parameters': {
-                    'type': 'object',
-                    'properties': {
-                        'latitude': latitude_param,
-                        'longitude': longitude_param,
-                        'unit': unit_param,
+                'type': 'function',
+                'function': {
+                    'name': 'get_current_weather',
+                    'description': 'Get the current weather for a location using Open Meteo APIs.',
+                    'parameters': {
+                        'type': 'object',
+                        'properties': {
+                            'latitude': latitude_param,
+                            'longitude': longitude_param,
+                            'unit': unit_param,
+                        },
+                        'required': ['latitude', 'longitude', 'unit'],
+                        'additionalProperties': False,
                     },
-                    'required': ['latitude', 'longitude', 'unit'],
+                    'strict': True,
                 },
             },
             {
-                'name': 'get_forecast_weather',
-                'description': "Get daily weather forecast for a location using Open Meteo APIs."
-                f"Today is {datetime.today().strftime('%A, %B %d, %Y')}",
-                'parameters': {
-                    'type': 'object',
-                    'properties': {
-                        'latitude': latitude_param,
-                        'longitude': longitude_param,
-                        'unit': unit_param,
-                        'forecast_days': {
-                            'type': 'integer',
-                            'description': 'The number of days to forecast, including today. Default is 7. Max 14. '
-                            'Use 1 for today, 2 for today and tomorrow, and so on.',
+                'type': 'function',
+                'function': {
+                    'name': 'get_forecast_weather',
+                    'description': "Get daily weather forecast for a location using Open Meteo APIs."
+                    f"Today is {datetime.today().strftime('%A, %B %d, %Y')}",
+                    'parameters': {
+                        'type': 'object',
+                        'properties': {
+                            'latitude': latitude_param,
+                            'longitude': longitude_param,
+                            'unit': unit_param,
+                            'forecast_days': {
+                                'type': 'integer',
+                                'description': 'The number of days to forecast, including today. Default is 7. Max 14. '
+                                'Use 1 for today, 2 for today and tomorrow, and so on.',
+                            },
                         },
+                        'required': ['latitude', 'longitude', 'unit', 'forecast_days'],
+                        'additionalProperties': False,
                     },
-                    'required': ['latitude', 'longitude', 'unit', 'forecast_days'],
+                    'strict': True,
                 },
             },
         ]

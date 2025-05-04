@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, List
 
 from .plugin import Plugin
 
@@ -11,22 +11,28 @@ class DicePlugin(Plugin):
     def get_source_name(self) -> str:
         return 'Dice'
 
-    def get_spec(self) -> [Dict]:
+    def get_spec(self) -> List[Dict]:
         return [
             {
-                'name': 'send_dice',
-                'description': 'Send a dice in the chat, with a random number between 1 and 6',
-                'parameters': {
-                    'type': 'object',
-                    'properties': {
-                        'emoji': {
-                            'type': 'string',
-                            'enum': ['🎲', '🎯', '🏀', '⚽', '🎳', '🎰'],
-                            'description': 'Emoji on which the dice throw animation is based.'
-                            'Dice can have values 1-6 for “🎲”, “🎯” and “🎳”, values 1-5 for “🏀” '
-                            'and “⚽”, and values 1-64 for “🎰”. Defaults to “🎲”.',
-                        }
+                'type': 'function',
+                'function': {
+                    'name': 'send_dice',
+                    'description': 'Send a dice in the chat, with a random number between 1 and 6',
+                    'parameters': {
+                        'type': 'object',
+                        'properties': {
+                            'emoji': {
+                                'type': 'string',
+                                'enum': ['🎲', '🎯', '🏀', '⚽', '🎳', '🎰'],
+                                'description': 'Emoji on which the dice throw animation is based.'
+                                'Dice can have values 1-6 for "🎲", "🎯" and "🎳", values 1-5 for "🏀" '
+                                'and "⚽", and values 1-64 for "🎰". Defaults to "🎲".',
+                            }
+                        },
+                        'required': ['emoji'],
+                        'additionalProperties': False,
                     },
+                    'strict': True,
                 },
             }
         ]

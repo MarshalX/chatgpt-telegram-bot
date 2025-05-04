@@ -1,6 +1,6 @@
 import os
 from datetime import datetime
-from typing import Dict
+from typing import Dict, List
 
 import httpx
 
@@ -21,21 +21,26 @@ class WorldTimeApiPlugin(Plugin):
     def get_source_name(self) -> str:
         return 'WorldTimeAPI'
 
-    def get_spec(self) -> [Dict]:
+    def get_spec(self) -> List[Dict]:
         return [
             {
-                'name': 'worldtimeapi',
-                'description': 'Get the current time from a given timezone',
-                'parameters': {
-                    'type': 'object',
-                    'properties': {
-                        'timezone': {
-                            'type': 'string',
-                            'description': 'The timezone identifier (e.g: `Europe/Rome`). Infer this from the location.'
-                            f'Use {self.default_timezone} if not specified.',
-                        }
+                'type': 'function',
+                'function': {
+                    'name': 'worldtimeapi',
+                    'description': 'Get the current time from a given timezone',
+                    'parameters': {
+                        'type': 'object',
+                        'properties': {
+                            'timezone': {
+                                'type': 'string',
+                                'description': 'The timezone identifier (e.g: `Europe/Rome`). Infer this from the location.'
+                                f'Use {self.default_timezone} if not specified.',
+                            }
+                        },
+                        'required': ['timezone'],
+                        'additionalProperties': False,
                     },
-                    'required': ['timezone'],
+                    'strict': True,
                 },
             }
         ]

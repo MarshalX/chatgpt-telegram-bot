@@ -1,5 +1,5 @@
 import io
-from typing import Dict
+from typing import Dict, List
 
 from pytube import YouTube
 
@@ -14,20 +14,25 @@ class YouTubeAudioExtractorPlugin(Plugin):
     def get_source_name(self) -> str:
         return 'YouTube Audio Extractor'
 
-    def get_spec(self) -> [Dict]:
+    def get_spec(self) -> List[Dict]:
         return [
             {
-                'name': 'extract_youtube_audio',
-                'description': 'Extract audio from a YouTube video',
-                'parameters': {
-                    'type': 'object',
-                    'properties': {
-                        'youtube_link': {
-                            'type': 'string',
-                            'description': 'YouTube video link to extract audio from',
-                        }
+                'type': 'function',
+                'function': {
+                    'name': 'extract_youtube_audio',
+                    'description': 'Extract audio from a YouTube video',
+                    'parameters': {
+                        'type': 'object',
+                        'properties': {
+                            'youtube_link': {
+                                'type': 'string',
+                                'description': 'YouTube video link to extract audio from',
+                            }
+                        },
+                        'required': ['youtube_link'],
+                        'additionalProperties': False,
                     },
-                    'required': ['youtube_link'],
+                    'strict': True,
                 },
             }
         ]

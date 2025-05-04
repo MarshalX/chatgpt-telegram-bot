@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, List
 
 import httpx
 import readability
@@ -12,17 +12,22 @@ class WebsiteContentPlugin(Plugin):
     """
 
     def get_source_name(self) -> str:
-        return 'Website Content'
+        return 'Get Website Content'
 
-    def get_spec(self) -> [Dict]:
+    def get_spec(self) -> List[Dict]:
         return [
             {
-                'name': 'website_content',
-                'description': 'Get and clean up the main body text and title for an URL',
-                'parameters': {
-                    'type': 'object',
-                    'properties': {'url': {'type': 'string', 'description': 'URL address'}},
-                    'required': ['url'],
+                'type': 'function',
+                'function': {
+                    'name': 'get_website_content',
+                    'description': 'Get and clean up the main body text (content) and title for an URL',
+                    'parameters': {
+                        'type': 'object',
+                        'properties': {'url': {'type': 'string', 'description': 'URL address'}},
+                        'required': ['url'],
+                        'additionalProperties': False,
+                    },
+                    'strict': True,
                 },
             }
         ]

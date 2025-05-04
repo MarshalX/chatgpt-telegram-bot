@@ -1,5 +1,5 @@
 import os
-from typing import Dict
+from typing import Dict, List
 
 from googleapiclient.discovery import build
 
@@ -18,17 +18,22 @@ class GoogleWebSearchPlugin(Plugin):
     def get_source_name(self) -> str:
         return 'Google'
 
-    def get_spec(self) -> [Dict]:
+    def get_spec(self) -> List[Dict]:
         return [
             {
-                'name': 'web_search',
-                'description': 'Execute a web search for the given query and return a list of results',
-                'parameters': {
-                    'type': 'object',
-                    'properties': {
-                        'query': {'type': 'string', 'description': 'the user query'},
+                'type': 'function',
+                'function': {
+                    'name': 'web_search',
+                    'description': 'Execute a web search for the given query and return a list of results',
+                    'parameters': {
+                        'type': 'object',
+                        'properties': {
+                            'query': {'type': 'string', 'description': 'the user query'},
+                        },
+                        'required': ['query'],
+                        'additionalProperties': False,
                     },
-                    'required': ['query'],
+                    'strict': True,
                 },
             }
         ]

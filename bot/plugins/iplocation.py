@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, List
 
 import httpx
 
@@ -13,15 +13,20 @@ class IpLocationPlugin(Plugin):
     def get_source_name(self) -> str:
         return 'IP.FM'
 
-    def get_spec(self) -> [Dict]:
+    def get_spec(self) -> List[Dict]:
         return [
             {
-                'name': 'iplocation',
-                'description': 'Get information for an IP address using the IP.FM API.',
-                'parameters': {
-                    'type': 'object',
-                    'properties': {'ip': {'type': 'string', 'description': 'IP Address'}},
-                    'required': ['ip'],
+                'type': 'function',
+                'function': {
+                    'name': 'iplocation',
+                    'description': 'Get information for an IP address using the IP.FM API.',
+                    'parameters': {
+                        'type': 'object',
+                        'properties': {'ip': {'type': 'string', 'description': 'IP Address'}},
+                        'required': ['ip'],
+                        'additionalProperties': False,
+                    },
+                    'strict': True,
                 },
             }
         ]

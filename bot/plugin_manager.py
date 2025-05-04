@@ -94,7 +94,7 @@ class PluginManager:
             (
                 plugin
                 for plugin in self.plugins
-                if function_name in map(lambda spec: spec.get('name'), plugin.get_spec())
+                if function_name in map(lambda spec: spec.get('function', {}).get('name'), plugin.get_spec())
             ),
             None,
         )

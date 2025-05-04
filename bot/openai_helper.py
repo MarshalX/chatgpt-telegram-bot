@@ -7,7 +7,7 @@ import io
 import json
 import logging
 import os
-from typing import Optional, TypedDict, Union
+from typing import TYPE_CHECKING, Optional, TypedDict, Union
 
 import httpx
 import openai
@@ -20,6 +20,10 @@ from PIL import Image
 from plugin_manager import PluginManager
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from utils import decode_image, encode_image, is_direct_result
+
+if TYPE_CHECKING:
+    from openai.types.chat import ChatCompletionMessageToolCall
+    from openai.types.chat.chat_completion_chunk import ChoiceDeltaToolCall
 
 # Models can be found here: https://platform.openai.com/docs/models/overview
 # Models gpt-3.5-turbo-0613 and gpt-3.5-turbo-16k-0613 will be deprecated on June 13, 2024
@@ -291,7 +295,7 @@ class OpenAIHelper:
         :return: The answer from the model and the number of tokens used
         """
         plugins_used = ()
-        response = await self.__common_get_chat_response(chat_id, query, user_id)
+        response = await self.__common_get_chat_response(chat_id, query, user_id=user_id)
         if self.config['enable_functions'] and not self.conversations_vision[chat_id]:
             response, plugins_used = await self.__handle_function_call(chat_id, response, user_id=user_id)
             if is_direct_result(response):
@@ -478,8 +482,9 @@ class OpenAIHelper:
             if self.config['enable_functions'] and not self.conversations_vision[chat_id]:
                 functions = self.plugin_manager.get_functions_specs()
                 if len(functions) > 0:
-                    common_args['functions'] = functions
-                    common_args['function_call'] = 'auto'
+                    common_args['tools'] = functions
+                    common_args['tool_choice'] = 'auto'
+                    common_args['parallel_tool_calls'] = False
 
             return await self.client.chat.completions.create(**common_args)
 
@@ -496,35 +501,50 @@ class OpenAIHelper:
         self, chat_id, response, stream=False, times=0, plugins_used=(), user_id: Optional[str] = None
     ):
         # FIXME misses correct count of tokens on chained function calls
-        function_name = ''
-        arguments = ''
+        # TODO add support of parallel_tool_calls
+        final_tool_calls = {}
+
         if stream:
-            async for item in response:
-                if len(item.choices) > 0:
-                    first_choice = item.choices[0]
-                    if first_choice.delta and first_choice.delta.function_call:
-                        if first_choice.delta.function_call.name:
-                            function_name += first_choice.delta.function_call.name
-                        if first_choice.delta.function_call.arguments:
-                            arguments += first_choice.delta.function_call.arguments
-                    elif first_choice.finish_reason and first_choice.finish_reason == 'function_call':
-                        break
-                    else:
-                        return response, plugins_used
-                else:
-                    return response, plugins_used
+            async for chunk in response:
+                if not chunk.choices:
+                    break
+
+                first_choice = chunk.choices[0]
+                if not first_choice.delta.tool_calls:
+                    break
+
+                for tool_call in first_choice.delta.tool_calls:
+                    index = tool_call.index
+
+                    if index not in final_tool_calls:
+                        final_tool_calls[index] = tool_call
+
+                    final_tool_calls[index].function.arguments += tool_call.function.arguments
+
+                if first_choice.finish_reason == 'tool_calls':
+                    break
         else:
-            if len(response.choices) > 0:
-                first_choice = response.choices[0]
-                if first_choice.message.function_call:
-                    if first_choice.message.function_call.name:
-                        function_name += first_choice.message.function_call.name
-                    if first_choice.message.function_call.arguments:
-                        arguments += first_choice.message.function_call.arguments
-                else:
-                    return response, plugins_used
-            else:
-                return response, plugins_used
+            tool_calls = (
+                response.choices[0].message.tool_calls
+                if response.choices and response.choices[0].message.tool_calls
+                else []
+            )
+            for index, tool_call in enumerate(tool_calls):
+                final_tool_calls[index] = tool_call
+
+        if not final_tool_calls:
+            return response, plugins_used
+
+        if len(final_tool_calls) > 1:
+            logging.warning(
+                f'Got multiple tool calls: {final_tool_calls}. Which is not supported yet. Only the first one will be used.'
+            )
+
+        tool_call = final_tool_calls[0]
+        function_name = tool_call.function.name
+        arguments = tool_call.function.arguments
+
+        await self.__add_tool_call_to_history(chat_id, tool_call, arguments)
 
         logging.info(f'Calling function {function_name} with arguments {arguments}')
         function_response = await self.plugin_manager.call_function(function_name, self, arguments)
@@ -533,24 +553,29 @@ class OpenAIHelper:
             plugins_used += (function_name,)
 
         if is_direct_result(function_response):
-            await self.__add_function_call_to_history(
+            await self.__add_tool_call_result_to_history(
                 chat_id=chat_id,
-                function_name=function_name,
-                content=json.dumps({'result': 'Done, the content has been sent to the user.'}),
+                tool_call_id=tool_call.id,
+                tool_name=function_name,
+                result=json.dumps({'result': 'Done, the content has been sent to the user.'}),
             )
             return function_response, plugins_used
 
-        json_func_response = json.dumps(function_response, default=str)
-        await self.__add_function_call_to_history(
-            chat_id=chat_id, function_name=function_name, content=json_func_response
+        await self.__add_tool_call_result_to_history(
+            chat_id=chat_id,
+            tool_call_id=tool_call.id,
+            tool_name=function_name,
+            result=json.dumps(function_response, default=str),
         )
+
         response = await self.client.chat.completions.create(
             model=self.config['model'],
             messages=self.conversations[chat_id],
-            functions=self.plugin_manager.get_functions_specs(),
-            function_call='auto' if times < self.config['functions_max_consecutive_calls'] else 'none',
+            tools=self.plugin_manager.get_functions_specs(),
+            tool_choice='auto' if times < self.config['functions_max_consecutive_calls'] else 'none',
+            parallel_tool_calls=False,
             stream=stream,
-            stream_options={'include_usage': True},
+            stream_options={'include_usage': True} if stream else None,
             user=user_id,
         )
         return await self.__handle_function_call(chat_id, response, stream, times + 1, plugins_used, user_id)
@@ -893,12 +918,35 @@ class OpenAIHelper:
         max_age_minutes = self.config['max_conversation_age_minutes']
         return last_updated < now - datetime.timedelta(minutes=max_age_minutes)
 
-    async def __add_function_call_to_history(self, chat_id, function_name, content):
+    async def __add_tool_call_to_history(
+        self, chat_id, tool_call: Union['ChatCompletionMessageToolCall', 'ChoiceDeltaToolCall'], arguments: str
+    ):
         """
-        Adds a function call to the conversation history
+        Adds a tool call to the conversation history
         """
-        self.conversations[chat_id].append({'role': 'function', 'name': function_name, 'content': content})
-        await self.add_conv_in_db(chat_id, 'function', content, function_name)
+        self.conversations[chat_id].append(
+            {
+                'role': 'assistant',
+                'tool_calls': [
+                    {
+                        'id': tool_call.id,
+                        'type': 'function',
+                        'function': {
+                            'name': tool_call.function.name,
+                            'arguments': arguments,
+                        },
+                    }
+                ],
+            }
+        )
+        await self.add_conv_in_db(chat_id, 'assistant', arguments, tool_call.function.name)
+
+    async def __add_tool_call_result_to_history(self, chat_id, tool_call_id, tool_name: str, result: str):
+        """
+        Adds a tool call result to the conversation history
+        """
+        self.conversations[chat_id].append({'role': 'tool', 'tool_call_id': tool_call_id, 'content': result})
+        await self.add_conv_in_db(chat_id, 'tool', result, tool_name)
 
     async def __add_to_history(self, chat_id, role, content):
         """
@@ -1006,7 +1054,7 @@ class OpenAIHelper:
                             else:
                                 num_tokens += len(encoding.encode(message1['text']))
                 else:
-                    num_tokens += len(encoding.encode(value))
+                    num_tokens += len(encoding.encode(json.dumps(value, default=str)))
                     if key == 'name':
                         num_tokens += tokens_per_name
         num_tokens += 3  # every reply is primed with <|start|>assistant<|message|>

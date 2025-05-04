@@ -1,5 +1,5 @@
 import os
-from typing import Dict
+from typing import Dict, List
 
 import wolframalpha
 
@@ -20,20 +20,25 @@ class WolframAlphaPlugin(Plugin):
     def get_source_name(self) -> str:
         return 'WolframAlpha'
 
-    def get_spec(self) -> [Dict]:
+    def get_spec(self) -> List[Dict]:
         return [
             {
-                'name': 'answer_with_wolfram_alpha',
-                'description': 'Get an answer to a question using Wolfram Alpha. Input should the the query in English.',
-                'parameters': {
-                    'type': 'object',
-                    'properties': {
-                        'query': {
-                            'type': 'string',
-                            'description': 'The search query, in english (translate if necessary)',
-                        }
+                'type': 'function',
+                'function': {
+                    'name': 'answer_with_wolfram_alpha',
+                    'description': 'Get an answer to a question using Wolfram Alpha. Input should the the query in English.',
+                    'parameters': {
+                        'type': 'object',
+                        'properties': {
+                            'query': {
+                                'type': 'string',
+                                'description': 'The search query, in english (translate if necessary)',
+                            }
+                        },
+                        'required': ['query'],
+                        'additionalProperties': False,
                     },
-                    'required': ['query'],
+                    'strict': True,
                 },
             }
         ]

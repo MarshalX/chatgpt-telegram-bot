@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, List
 
 from .plugin import Plugin
 
@@ -11,20 +11,25 @@ class AutoTextToSpeech(Plugin):
     def get_source_name(self) -> str:
         return 'TTS'
 
-    def get_spec(self) -> [Dict]:
+    def get_spec(self) -> List[Dict]:
         return [
             {
-                'name': 'translate_text_to_speech',
-                'description': 'Translate text to speech using OpenAI API',
-                'parameters': {
-                    'type': 'object',
-                    'properties': {
-                        'text': {
-                            'type': 'string',
-                            'description': 'The text to translate to speech',
+                'type': 'function',
+                'function': {
+                    'name': 'translate_text_to_speech',
+                    'description': 'Translate text to speech using OpenAI API',
+                    'parameters': {
+                        'type': 'object',
+                        'properties': {
+                            'text': {
+                                'type': 'string',
+                                'description': 'The text to translate to speech',
+                            },
                         },
+                        'required': ['text'],
+                        'additionalProperties': False,
                     },
-                    'required': ['text'],
+                    'strict': True,
                 },
             }
         ]

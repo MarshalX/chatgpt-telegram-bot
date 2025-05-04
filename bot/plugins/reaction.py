@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, List
 
 from telegram.constants import ReactionEmoji
 
@@ -16,21 +16,26 @@ class ReactionPlugin(Plugin):
     def get_source_name(self) -> str:
         return 'Reaction'
 
-    def get_spec(self) -> [Dict]:
+    def get_spec(self) -> List[Dict]:
         return [
             {
-                'name': 'react_with_emoji',
-                'description': 'Set emoji as a reaction to the reply message',
-                'parameters': {
-                    'type': 'object',
-                    'properties': {
-                        'reaction': {
-                            'type': 'string',
-                            'description': 'Emoji reaction to respond with',
-                            'enum': self._emojis,
-                        }
+                'type': 'function',
+                'function': {
+                    'name': 'react_with_emoji',
+                    'description': 'Set emoji as a reaction to the reply message',
+                    'parameters': {
+                        'type': 'object',
+                        'properties': {
+                            'reaction': {
+                                'type': 'string',
+                                'description': 'Emoji reaction to respond with',
+                                'enum': self._emojis,
+                            }
+                        },
+                        'required': ['reaction'],
+                        'additionalProperties': False,
                     },
-                    'required': ['reaction'],
+                    'strict': True,
                 },
             }
         ]

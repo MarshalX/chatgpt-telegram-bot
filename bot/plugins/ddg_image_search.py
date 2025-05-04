@@ -1,7 +1,7 @@
 import os
 import random
 from itertools import islice
-from typing import Dict
+from typing import Dict, List
 
 from duckduckgo_search import DDGS
 
@@ -19,29 +19,34 @@ class DDGImageSearchPlugin(Plugin):
     def get_source_name(self) -> str:
         return 'DuckDuckGo Images'
 
-    def get_spec(self) -> [Dict]:
+    def get_spec(self) -> List[Dict]:
         return [
             {
-                'name': 'search_images',
-                'description': 'Search image or GIFs for a given query',
-                'parameters': {
-                    'type': 'object',
-                    'properties': {
-                        'query': {
-                            'type': 'string',
-                            'description': 'The query to search for',
+                'type': 'function',
+                'function': {
+                    'name': 'search_images',
+                    'description': 'Search image or GIFs for a given query',
+                    'parameters': {
+                        'type': 'object',
+                        'properties': {
+                            'query': {
+                                'type': 'string',
+                                'description': 'The query to search for',
+                            },
+                            'type': {
+                                'type': 'string',
+                                'enum': ['photo', 'gif'],
+                                'description': 'The type of image to search for. Default to `photo` if not specified',
+                            },
+                            'count': {
+                                'type': 'integer',
+                                'description': 'The number of images to return. Default to 1 if not specified',
+                            },
                         },
-                        'type': {
-                            'type': 'string',
-                            'enum': ['photo', 'gif'],
-                            'description': 'The type of image to search for. Default to `photo` if not specified',
-                        },
-                        'count': {
-                            'type': 'integer',
-                            'description': 'The number of images to return. Default to 1 if not specified',
-                        },
+                        'required': ['query', 'type', 'count'],
+                        'additionalProperties': False,
                     },
-                    'required': ['query'],
+                    'strict': True,
                 },
             }
         ]

@@ -1,5 +1,5 @@
 import io
-from typing import Dict
+from typing import Dict, List
 
 from gtts import gTTS
 
@@ -14,25 +14,30 @@ class GTTSTextToSpeech(Plugin):
     def get_source_name(self) -> str:
         return 'gTTS'
 
-    def get_spec(self) -> [Dict]:
+    def get_spec(self) -> List[Dict]:
         return [
             {
-                'name': 'google_translate_text_to_speech',
-                'description': "Translate text to speech using Google Translate's Text to Speech API",
-                'parameters': {
-                    'type': 'object',
-                    'properties': {
-                        'text': {
-                            'type': 'string',
-                            'description': 'The text to translate to speech',
+                'type': 'function',
+                'function': {
+                    'name': 'google_translate_text_to_speech',
+                    'description': "Translate text to speech using Google Translate's Text to Speech API",
+                    'parameters': {
+                        'type': 'object',
+                        'properties': {
+                            'text': {
+                                'type': 'string',
+                                'description': 'The text to translate to speech',
+                            },
+                            'lang': {
+                                'type': 'string',
+                                'description': 'The language of the text to translate to speech.'
+                                'Infer this from the language of the text.',
+                            },
                         },
-                        'lang': {
-                            'type': 'string',
-                            'description': 'The language of the text to translate to speech.'
-                            'Infer this from the language of the text.',
-                        },
+                        'required': ['text', 'lang'],
+                        'additionalProperties': False,
                     },
-                    'required': ['text', 'lang'],
+                    'strict': True,
                 },
             }
         ]

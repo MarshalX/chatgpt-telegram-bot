@@ -1,6 +1,6 @@
 import random
 import string
-from typing import Dict
+from typing import Dict, List
 
 import httpx
 
@@ -15,20 +15,25 @@ class WebshotPlugin(Plugin):
     def get_source_name(self) -> str:
         return 'WebShot'
 
-    def get_spec(self) -> [Dict]:
+    def get_spec(self) -> List[Dict]:
         return [
             {
-                'name': 'screenshot_website',
-                'description': 'Show screenshot/image of a website from a given url or domain name.',
-                'parameters': {
-                    'type': 'object',
-                    'properties': {
-                        'url': {
-                            'type': 'string',
-                            'description': 'Website url or domain name. Correctly formatted url is required. Example: https://www.google.com',
-                        }
+                'type': 'function',
+                'function': {
+                    'name': 'screenshot_website',
+                    'description': 'Show screenshot/image of a website from a given url or domain name.',
+                    'parameters': {
+                        'type': 'object',
+                        'properties': {
+                            'url': {
+                                'type': 'string',
+                                'description': 'Website url or domain name. Correctly formatted url is required. Example: https://www.google.com',
+                            }
+                        },
+                        'required': ['url'],
+                        'additionalProperties': False,
                     },
-                    'required': ['url'],
+                    'strict': True,
                 },
             }
         ]

@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, List
 
 from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api.formatters import JSONFormatter
@@ -14,20 +14,25 @@ class YoutubeTranscriptPlugin(Plugin):
     def get_source_name(self) -> str:
         return 'YouTube Transcript'
 
-    def get_spec(self) -> [Dict]:
+    def get_spec(self) -> List[Dict]:
         return [
             {
-                'name': 'youtube_video_transcript',
-                'description': 'Get the transcript of a YouTube video for a given YouTube video ID',
-                'parameters': {
-                    'type': 'object',
-                    'properties': {
-                        'video_id': {
-                            'type': 'string',
-                            'description': 'YouTube video ID. For example, for the video https://youtu.be/dQw4w9WgXcQ, the video ID is dQw4w9WgXcQ',
-                        }
+                'type': 'function',
+                'function': {
+                    'name': 'youtube_video_transcript',
+                    'description': 'Get the transcript of a YouTube video for a given YouTube video ID',
+                    'parameters': {
+                        'type': 'object',
+                        'properties': {
+                            'video_id': {
+                                'type': 'string',
+                                'description': 'YouTube video ID. For example, for the video https://youtu.be/dQw4w9WgXcQ, the video ID is dQw4w9WgXcQ',
+                            }
+                        },
+                        'required': ['video_id'],
+                        'additionalProperties': False,
                     },
-                    'required': ['video_id'],
+                    'strict': True,
                 },
             }
         ]

@@ -1,5 +1,5 @@
 import os
-from typing import Dict
+from typing import Dict, List
 
 import spotipy
 from spotipy import SpotifyOAuth
@@ -34,7 +34,7 @@ class SpotifyPlugin(Plugin):
     def get_source_name(self) -> str:
         return 'Spotify'
 
-    def get_spec(self) -> [Dict]:
+    def get_spec(self) -> List[Dict]:
         # time_range_param = {
         #     'type': 'string',
         #     'enum': ['short_term', 'medium_term', 'long_term'],
@@ -53,9 +53,13 @@ class SpotifyPlugin(Plugin):
         }
         return [
             {
-                'name': 'spotify_get_currently_playing_song',
-                'description': "Get the user's currently playing song",
-                'parameters': {'type': 'object', 'properties': {}},
+                'type': 'function',
+                'function': {
+                    'name': 'spotify_get_currently_playing_song',
+                    'description': "Get the user's currently playing song",
+                    'parameters': {'type': 'object', 'properties': {}, 'additionalProperties': False},
+                    'strict': True,
+                },
             },
             # {
             #     'name': 'spotify_get_users_top_artists',
@@ -80,18 +84,23 @@ class SpotifyPlugin(Plugin):
             #     },
             # },
             {
-                'name': 'spotify_search_by_query',
-                'description': 'Search spotify content by query',
-                'parameters': {
-                    'type': 'object',
-                    'properties': {
-                        'query': {
-                            'type': 'string',
-                            'description': 'The search query',
+                'type': 'function',
+                'function': {
+                    'name': 'spotify_search_by_query',
+                    'description': 'Search spotify content by query',
+                    'parameters': {
+                        'type': 'object',
+                        'properties': {
+                            'query': {
+                                'type': 'string',
+                                'description': 'The search query',
+                            },
+                            'type': type_param,
                         },
-                        'type': type_param,
+                        'required': ['query', 'type'],
+                        'additionalProperties': False,
                     },
-                    'required': ['query', 'type'],
+                    'strict': True,
                 },
             },
             # {

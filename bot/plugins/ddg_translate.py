@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, List
 
 from duckduckgo_search import DDGS
 
@@ -13,24 +13,29 @@ class DDGTranslatePlugin(Plugin):
     def get_source_name(self) -> str:
         return 'DuckDuckGo Translate'
 
-    def get_spec(self) -> [Dict]:
+    def get_spec(self) -> List[Dict]:
         return [
             {
-                'name': 'translate',
-                'description': 'Translate a given text from a language to another',
-                'parameters': {
-                    'type': 'object',
-                    'properties': {
-                        'text': {
-                            'type': 'string',
-                            'description': 'The text to translate',
+                'type': 'function',
+                'function': {
+                    'name': 'translate',
+                    'description': 'Translate a given text from a language to another',
+                    'parameters': {
+                        'type': 'object',
+                        'properties': {
+                            'text': {
+                                'type': 'string',
+                                'description': 'The text to translate',
+                            },
+                            'to_language': {
+                                'type': 'string',
+                                'description': "The language to translate to (e.g. 'it')",
+                            },
                         },
-                        'to_language': {
-                            'type': 'string',
-                            'description': "The language to translate to (e.g. 'it')",
-                        },
+                        'required': ['text', 'to_language'],
+                        'additionalProperties': False,
                     },
-                    'required': ['text', 'to_language'],
+                    'strict': True,
                 },
             }
         ]
