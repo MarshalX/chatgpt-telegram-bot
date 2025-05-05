@@ -6,4 +6,9 @@ services:
       dockerfile: Dockerfile
     volumes:
       - .:/app
+      - /var/run/docker.sock:/var/run/docker.sock
+      - dagger-cache:/root/.dagger
     restart: unless-stopped
+
+volumes:
+  dagger-cache:

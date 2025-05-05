@@ -3,6 +3,7 @@ import logging
 from typing import Dict
 
 from plugins.auto_tts import AutoTextToSpeech
+from plugins.code_execution import CodeExecutionPlugin
 from plugins.ddg_image_search import DDGImageSearchPlugin
 from plugins.dice import DicePlugin
 from plugins.google_web_search import GoogleWebSearchPlugin
@@ -43,6 +44,7 @@ class PluginManager:
             # 'iplocation': IpLocationPlugin,
             'website_content': WebsiteContentPlugin,
             'youtube_transcript': YoutubeTranscriptPlugin,
+            'code': CodeExecutionPlugin,
         }
 
         enabled_plugins = config.get('plugins', [])

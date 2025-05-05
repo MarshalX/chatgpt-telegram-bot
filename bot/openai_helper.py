@@ -548,6 +548,8 @@ class OpenAIHelper:
 
         logging.info(f'Calling function {function_name} with arguments {arguments}')
         function_response = await self.plugin_manager.call_function(function_name, self, arguments)
+        function_response_json = json.dumps(function_response, default=str)
+        logging.info(f'Function {function_name} returned {function_response_json[:100]}')
 
         if function_name not in plugins_used:
             plugins_used += (function_name,)
@@ -565,7 +567,7 @@ class OpenAIHelper:
             chat_id=chat_id,
             tool_call_id=tool_call.id,
             tool_name=function_name,
-            result=json.dumps(function_response, default=str),
+            result=function_response_json,
         )
 
         response = await self.client.chat.completions.create(
