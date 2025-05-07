@@ -5,7 +5,6 @@ import base64
 import itertools
 import json
 import logging
-from datetime import datetime
 from typing import Callable, Optional
 
 import telegram
@@ -61,53 +60,14 @@ def get_forum_thread_id(update: Update) -> int | None:
     return None
 
 
-def get_stream_cutoff_values(update: Update, content: str, last_message_time=None, message_count=None) -> int:
+def get_stream_cutoff_values(update: Update, content: str) -> int:
     """
     Gets the stream cutoff values for the message length
-    Additionally helps manage rate limiting based on Telegram's limits:
-    - Individual chat: ~1 message per second (with short bursts allowed)
-    - Group chat: 20 messages per minute max
-    - General broadcast: 30 messages per second max
-
-    Args:
-        update: The update object
-        content: The content being sent
-        last_message_time: Optional timestamp of when the last message was sent
-        message_count: Optional count of messages sent recently in this chat
-
-    Returns:
-        Cutoff value for message edits
     """
-    now = datetime.now()
-    is_group = is_group_chat(update)
-
-    # Base cutoffs based on content length
-    if is_group:
-        # Group chats have stricter flood limits
-        base_cutoff = 180 if len(content) > 1000 else 120 if len(content) > 200 else 90 if len(content) > 50 else 50
-    else:
-        # Private chats can handle more frequent updates
-        base_cutoff = 90 if len(content) > 1000 else 45 if len(content) > 200 else 25 if len(content) > 50 else 15
-
-    # Apply time-based throttling if we have timing data
-    if last_message_time:
-        time_since_last = (now - last_message_time).total_seconds()
-
-        if is_group:
-            # For groups: ensure we don't exceed 20 messages per minute
-            # Increase cutoff by up to 5x when approaching limits
-            if message_count and message_count > 15:  # Approaching group limit
-                throttle_factor = min(5, 1 + (message_count - 15))
-                base_cutoff *= throttle_factor
-            # If less than 3 seconds since last message, increase cutoff
-            elif time_since_last < 3:
-                base_cutoff *= 4 - time_since_last
-        else:
-            # For private chats: throttle if sending faster than 1 per second
-            if time_since_last < 1:
-                base_cutoff *= 2 - time_since_last
-
-    return int(base_cutoff)
+    if is_group_chat(update):
+        # group chats have stricter flood limits
+        return 180 if len(content) > 1000 else 120 if len(content) > 200 else 90 if len(content) > 50 else 50
+    return 90 if len(content) > 1000 else 45 if len(content) > 200 else 25 if len(content) > 50 else 15
 
 
 def is_group_chat(update: Update) -> bool:
