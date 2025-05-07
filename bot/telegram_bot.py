@@ -997,6 +997,7 @@ class ChatGPTTelegramBot:
                 sent_message = None
                 backoff = 0
                 stream_chunk = 0
+                processed_chunks = []  # Track which chunks have been processed
 
                 async for content, tokens in stream_response:
                     if is_direct_result(content):
@@ -1007,26 +1008,38 @@ class ChatGPTTelegramBot:
 
                     stream_chunks = split_into_chunks(content)
                     if len(stream_chunks) > 1:
+                        # Keep track of the last chunk as current content
                         content = stream_chunks[-1]
-                        if stream_chunk != len(stream_chunks) - 1:
-                            stream_chunk += 1
+                        
+                        # Process any new complete chunks
+                        for chunk_idx in range(len(processed_chunks), len(stream_chunks) - 1):
                             try:
-                                await edit_message_with_retry(
-                                    context,
-                                    chat_id,
-                                    str(sent_message.message_id),
-                                    stream_chunks[-2],
-                                )
-                            except:
-                                pass
-                            try:
+                                # If we have a message already, edit it with the current complete chunk
+                                if sent_message is not None:
+                                    await edit_message_with_retry(
+                                        context,
+                                        chat_id,
+                                        str(sent_message.message_id),
+                                        stream_chunks[chunk_idx],
+                                    )
+                                
+                                # Create a new message for the next chunk (current content)
                                 sent_message = await update.effective_message.reply_text(
                                     message_thread_id=get_forum_thread_id(update),
                                     text=content if len(content) > 0 else '...',
                                 )
                                 self.save_reply(sent_message, update)
-                            except:
+                                processed_chunks.append(chunk_idx)
+                            except Exception as e:
+                                logging.error(f"Error handling chunk: {e}")
                                 pass
+                        
+                        # If we've processed all complete chunks, continue streaming with the last chunk
+                        if len(processed_chunks) == len(stream_chunks) - 1:
+                            # We've handled all complete chunks, continue with normal streaming for the last chunk
+                            pass
+                        else:
+                            # We still have unprocessed complete chunks, skip this iteration
                             continue
 
                     cutoff = get_stream_cutoff_values(update, content)
@@ -1189,6 +1202,7 @@ class ChatGPTTelegramBot:
                 sent_message = None
                 backoff = 0
                 stream_chunk = 0
+                processed_chunks = []  # Track which chunks have been processed
 
                 async for content, tokens in stream_response:
                     if is_direct_result(content):
@@ -1199,26 +1213,38 @@ class ChatGPTTelegramBot:
 
                     stream_chunks = split_into_chunks(content)
                     if len(stream_chunks) > 1:
+                        # Keep track of the last chunk as current content
                         content = stream_chunks[-1]
-                        if stream_chunk != len(stream_chunks) - 1:
-                            stream_chunk += 1
+                        
+                        # Process any new complete chunks
+                        for chunk_idx in range(len(processed_chunks), len(stream_chunks) - 1):
                             try:
-                                await edit_message_with_retry(
-                                    context,
-                                    chat_id,
-                                    str(sent_message.message_id),
-                                    stream_chunks[-2],
-                                )
-                            except:
-                                pass
-                            try:
+                                # If we have a message already, edit it with the current complete chunk
+                                if sent_message is not None:
+                                    await edit_message_with_retry(
+                                        context,
+                                        chat_id,
+                                        str(sent_message.message_id),
+                                        stream_chunks[chunk_idx],
+                                    )
+                                
+                                # Create a new message for the next chunk (current content)
                                 sent_message = await update.effective_message.reply_text(
                                     message_thread_id=get_forum_thread_id(update),
                                     text=content if len(content) > 0 else '...',
                                 )
                                 self.save_reply(sent_message, update)
-                            except:
+                                processed_chunks.append(chunk_idx)
+                            except Exception as e:
+                                logging.error(f"Error handling chunk: {e}")
                                 pass
+                        
+                        # If we've processed all complete chunks, continue streaming with the last chunk
+                        if len(processed_chunks) == len(stream_chunks) - 1:
+                            # We've handled all complete chunks, continue with normal streaming for the last chunk
+                            pass
+                        else:
+                            # We still have unprocessed complete chunks, skip this iteration
                             continue
 
                     cutoff = get_stream_cutoff_values(update, content)
