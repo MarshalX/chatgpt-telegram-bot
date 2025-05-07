@@ -67,6 +67,7 @@ class RateLimiter:
     """
     Class to handle rate limiting for Telegram API
     """
+
     def __init__(self, config):
         # Store the configuration
         self.config = config
@@ -74,7 +75,7 @@ class RateLimiter:
         self.group_limit = config.get('group_rate_limit', 20)  # Messages per minute for groups
         self.private_limit = config.get('private_rate_limit', 1.0)  # Seconds between messages
         self.max_update_frequency = config.get('max_update_frequency', 0.5)  # Maximum updates per second
-        
+
         # Track last message time per chat
         self.last_update_time: Dict[str, float] = {}
         # Track message count per minute for group chats
@@ -82,7 +83,7 @@ class RateLimiter:
         self.group_minute_start: Dict[str, float] = {}
         # Track last update time for streaming
         self.last_stream_update: Dict[str, float] = {}
-        
+
     async def check_and_wait(self, chat_id: str, is_group: bool = False) -> bool:
         """
         Check if we can send a message and wait if necessary
@@ -91,41 +92,41 @@ class RateLimiter:
         # If rate limiting is disabled, always allow
         if not self.enabled:
             return True
-            
+
         current_time = time.time()
-        
+
         # Initialize tracking for this chat if it doesn't exist
         if chat_id not in self.last_update_time:
             self.last_update_time[chat_id] = 0
-        
+
         # For group chats, handle the group rate limit (default 20 messages per minute)
         if is_group:
             if chat_id not in self.group_message_count:
                 self.group_message_count[chat_id] = 0
                 self.group_minute_start[chat_id] = current_time
-            
+
             # Reset counter if a minute has passed
             if current_time - self.group_minute_start[chat_id] > 60:
                 self.group_message_count[chat_id] = 0
                 self.group_minute_start[chat_id] = current_time
-            
+
             # Check if we've hit the group message limit
             if self.group_message_count[chat_id] >= self.group_limit:
                 # We've hit the hard limit for this minute
                 return False
-            
+
             # Increment the group message counter
             self.group_message_count[chat_id] += 1
-        
+
         # Calculate time to wait to meet rate limit
         time_since_last_message = current_time - self.last_update_time[chat_id]
         if time_since_last_message < self.private_limit:
             await asyncio.sleep(self.private_limit - time_since_last_message)
-        
+
         # Update the last message time
         self.last_update_time[chat_id] = time.time()
         return True
-        
+
     def should_update(self, chat_id: str, is_group: bool, current_length: int, prev_length: int, cutoff: int) -> bool:
         """
         Decide if we should update the message based on rate limiting and content change size
@@ -134,17 +135,17 @@ class RateLimiter:
         # If rate limiting is disabled, always update
         if not self.enabled:
             return True
-            
+
         current_time = time.time()
-        
+
         # Initialize tracking
         if chat_id not in self.last_update_time:
             self.last_update_time[chat_id] = 0
             return True
-            
+
         if chat_id not in self.last_stream_update:
             self.last_stream_update[chat_id] = 0
-            
+
         # Check max update frequency for streaming
         time_since_last_stream_update = current_time - self.last_stream_update[chat_id]
         if time_since_last_stream_update < self.max_update_frequency:
@@ -152,7 +153,7 @@ class RateLimiter:
             significant_change = abs(current_length - prev_length) > (cutoff * 2)
             if not significant_change:
                 return False
-        
+
         # For group chats, be more conservative with updates
         if is_group:
             # Check if we're approaching the group message limit
@@ -161,25 +162,25 @@ class RateLimiter:
                 if self.group_message_count[chat_id] >= 0.8 * self.group_limit:
                     # Only update if significant changes (2x cutoff)
                     return abs(current_length - prev_length) > (cutoff * 2)
-            
+
             # Check time since last update
             time_since_last_message = current_time - self.last_update_time[chat_id]
-            
+
             # For groups, prefer fewer updates
             if time_since_last_message < self.private_limit * 2:
                 # If it's been less than 2x the rate limit,
                 # only update if significant changes
                 return abs(current_length - prev_length) > (cutoff * 1.5)
-        
+
         # For private chats, be more frequent but still respect limits
         time_since_last_message = current_time - self.last_update_time[chat_id]
         if time_since_last_message < self.private_limit:
             # If it's been less than the rate limit, only update if significant changes
             return abs(current_length - prev_length) > cutoff
-            
+
         # If we decide to update, update the last stream update time
         self.last_stream_update[chat_id] = current_time
-        
+
         # Otherwise update is fine
         return True
 
@@ -1119,7 +1120,6 @@ class ChatGPTTelegramBot:
                 prev = ''
                 sent_message = None
                 backoff = 0
-                stream_chunk = 0
                 processed_chunks = []  # Track which chunks have been processed
                 is_group = is_group_chat(update)
                 str_chat_id = str(chat_id)
@@ -1135,7 +1135,7 @@ class ChatGPTTelegramBot:
                     if len(stream_chunks) > 1:
                         # Keep track of the last chunk as current content
                         content = stream_chunks[-1]
-                        
+
                         # Process any new complete chunks
                         for chunk_idx in range(len(processed_chunks), len(stream_chunks) - 1):
                             try:
@@ -1144,25 +1144,25 @@ class ChatGPTTelegramBot:
                                     # Check rate limits before sending
                                     can_send = await self.rate_limiter.check_and_wait(str_chat_id, is_group)
                                     if not can_send:
-                                        logging.warning(f"Rate limit reached for chat {chat_id}, skipping update")
+                                        logging.warning(f'Rate limit reached for chat {chat_id}, skipping update')
                                         continue
-                                        
+
                                     await edit_message_with_retry(
                                         context,
                                         chat_id,
                                         str(sent_message.message_id),
                                         stream_chunks[chunk_idx],
                                     )
-                                
+
                                 # Create a new message for the next chunk (current content)
                                 # Check rate limits before sending
                                 can_send = await self.rate_limiter.check_and_wait(str_chat_id, is_group)
                                 if not can_send:
-                                    logging.warning(f"Rate limit reached for chat {chat_id}, skipping new message")
+                                    logging.warning(f'Rate limit reached for chat {chat_id}, skipping new message')
                                     # Mark this chunk as processed anyway to avoid creating multiple messages later
                                     processed_chunks.append(chunk_idx)
                                     continue
-                                    
+
                                 sent_message = await update.effective_message.reply_text(
                                     message_thread_id=get_forum_thread_id(update),
                                     text=content if len(content) > 0 else '...',
@@ -1170,9 +1170,9 @@ class ChatGPTTelegramBot:
                                 self.save_reply(sent_message, update)
                                 processed_chunks.append(chunk_idx)
                             except Exception as e:
-                                logging.error(f"Error handling chunk: {e}")
+                                logging.error(f'Error handling chunk: {e}')
                                 pass
-                        
+
                         # If we've processed all complete chunks, continue streaming with the last chunk
                         if len(processed_chunks) == len(stream_chunks) - 1:
                             # We've handled all complete chunks, continue with normal streaming for the last chunk
@@ -1189,9 +1189,9 @@ class ChatGPTTelegramBot:
                             # Check rate limits before sending first message
                             can_send = await self.rate_limiter.check_and_wait(str_chat_id, is_group)
                             if not can_send:
-                                logging.warning(f"Rate limit reached for chat {chat_id}, waiting for next update")
+                                logging.warning(f'Rate limit reached for chat {chat_id}, waiting for next update')
                                 continue
-                                
+
                             if sent_message is not None:
                                 await context.bot.delete_message(
                                     chat_id=sent_message.chat_id,
@@ -1214,17 +1214,17 @@ class ChatGPTTelegramBot:
                             should_update = tokens != 'not_finished' or self.rate_limiter.should_update(
                                 str_chat_id, is_group, len(content), len(prev), cutoff
                             )
-                            
+
                             # If we shouldn't update, skip this iteration
                             if not should_update:
                                 continue
-                                
+
                             # Otherwise, check rate limits and update if possible
                             can_send = await self.rate_limiter.check_and_wait(str_chat_id, is_group)
                             if not can_send:
-                                logging.warning(f"Rate limit reached for chat {chat_id}, skipping update")
+                                logging.warning(f'Rate limit reached for chat {chat_id}, skipping update')
                                 continue
-                                
+
                             use_markdown = tokens != 'not_finished'
                             await edit_message_with_retry(
                                 context,
@@ -1266,7 +1266,7 @@ class ChatGPTTelegramBot:
                         is_group = is_group_chat(update)
                         str_chat_id = str(chat_id)
                         can_send = await self.rate_limiter.check_and_wait(str_chat_id, is_group)
-                        
+
                         if can_send:
                             sent_msg = await update.effective_message.reply_text(
                                 message_thread_id=get_forum_thread_id(update),
@@ -1277,10 +1277,10 @@ class ChatGPTTelegramBot:
                             self.save_reply(sent_msg, update)
                         else:
                             # If rate limit reached, try without markdown
-                            logging.warning(f"Rate limit reached for chat {chat_id}, trying again in 1 second")
+                            logging.warning(f'Rate limit reached for chat {chat_id}, trying again in 1 second')
                             await asyncio.sleep(1)
                             can_send = await self.rate_limiter.check_and_wait(str_chat_id, is_group)
-                            
+
                             if can_send:
                                 sent_msg = await update.effective_message.reply_text(
                                     message_thread_id=get_forum_thread_id(update),
@@ -1289,14 +1289,14 @@ class ChatGPTTelegramBot:
                                 )
                                 self.save_reply(sent_msg, update)
                             else:
-                                logging.error(f"Failed to send vision response due to rate limits")
+                                logging.error('Failed to send vision response due to rate limits')
                     except BadRequest:
                         try:
                             # Check rate limits before retrying
                             is_group = is_group_chat(update)
                             str_chat_id = str(chat_id)
                             can_send = await self.rate_limiter.check_and_wait(str_chat_id, is_group)
-                            
+
                             if can_send:
                                 sent_msg = await update.effective_message.reply_text(
                                     message_thread_id=get_forum_thread_id(update),
@@ -1305,7 +1305,7 @@ class ChatGPTTelegramBot:
                                 )
                                 self.save_reply(sent_msg, update)
                             else:
-                                logging.error(f"Failed to send vision response due to rate limits")
+                                logging.error('Failed to send vision response due to rate limits')
                         except Exception as e:
                             logging.exception(e)
                             await update.effective_message.reply_text(
@@ -1391,7 +1391,6 @@ class ChatGPTTelegramBot:
                 prev = ''
                 sent_message = None
                 backoff = 0
-                stream_chunk = 0
                 processed_chunks = []  # Track which chunks have been processed
                 is_group = is_group_chat(update)
                 str_chat_id = str(chat_id)
@@ -1407,7 +1406,7 @@ class ChatGPTTelegramBot:
                     if len(stream_chunks) > 1:
                         # Keep track of the last chunk as current content
                         content = stream_chunks[-1]
-                        
+
                         # Process any new complete chunks
                         for chunk_idx in range(len(processed_chunks), len(stream_chunks) - 1):
                             try:
@@ -1416,25 +1415,25 @@ class ChatGPTTelegramBot:
                                     # Check rate limits before sending
                                     can_send = await self.rate_limiter.check_and_wait(str_chat_id, is_group)
                                     if not can_send:
-                                        logging.warning(f"Rate limit reached for chat {chat_id}, skipping update")
+                                        logging.warning(f'Rate limit reached for chat {chat_id}, skipping update')
                                         continue
-                                        
+
                                     await edit_message_with_retry(
                                         context,
                                         chat_id,
                                         str(sent_message.message_id),
                                         stream_chunks[chunk_idx],
                                     )
-                                
+
                                 # Create a new message for the next chunk (current content)
                                 # Check rate limits before sending
                                 can_send = await self.rate_limiter.check_and_wait(str_chat_id, is_group)
                                 if not can_send:
-                                    logging.warning(f"Rate limit reached for chat {chat_id}, skipping new message")
+                                    logging.warning(f'Rate limit reached for chat {chat_id}, skipping new message')
                                     # Mark this chunk as processed anyway to avoid creating multiple messages later
                                     processed_chunks.append(chunk_idx)
                                     continue
-                                    
+
                                 sent_message = await update.effective_message.reply_text(
                                     message_thread_id=get_forum_thread_id(update),
                                     text=content if len(content) > 0 else '...',
@@ -1442,9 +1441,9 @@ class ChatGPTTelegramBot:
                                 self.save_reply(sent_message, update)
                                 processed_chunks.append(chunk_idx)
                             except Exception as e:
-                                logging.error(f"Error handling chunk: {e}")
+                                logging.error(f'Error handling chunk: {e}')
                                 pass
-                        
+
                         # If we've processed all complete chunks, continue streaming with the last chunk
                         if len(processed_chunks) == len(stream_chunks) - 1:
                             # We've handled all complete chunks, continue with normal streaming for the last chunk
@@ -1461,9 +1460,9 @@ class ChatGPTTelegramBot:
                             # Check rate limits before sending first message
                             can_send = await self.rate_limiter.check_and_wait(str_chat_id, is_group)
                             if not can_send:
-                                logging.warning(f"Rate limit reached for chat {chat_id}, waiting for next update")
+                                logging.warning(f'Rate limit reached for chat {chat_id}, waiting for next update')
                                 continue
-                                
+
                             if sent_message is not None:
                                 await context.bot.delete_message(
                                     chat_id=sent_message.chat_id,
@@ -1486,17 +1485,17 @@ class ChatGPTTelegramBot:
                             should_update = tokens != 'not_finished' or self.rate_limiter.should_update(
                                 str_chat_id, is_group, len(content), len(prev), cutoff
                             )
-                            
+
                             # If we shouldn't update, skip this iteration
                             if not should_update:
                                 continue
-                                
+
                             # Otherwise, check rate limits and update if possible
                             can_send = await self.rate_limiter.check_and_wait(str_chat_id, is_group)
                             if not can_send:
-                                logging.warning(f"Rate limit reached for chat {chat_id}, skipping update")
+                                logging.warning(f'Rate limit reached for chat {chat_id}, skipping update')
                                 continue
-                                
+
                             use_markdown = tokens != 'not_finished'
                             await edit_message_with_retry(
                                 context,
@@ -1540,7 +1539,7 @@ class ChatGPTTelegramBot:
 
                     # Split into chunks of 4096 characters (Telegram's message limit)
                     chunks = split_into_chunks(response)
-                    
+
                     # Check if we're in a group
                     is_group = is_group_chat(update)
                     str_chat_id = str(chat_id)
@@ -1551,17 +1550,17 @@ class ChatGPTTelegramBot:
                             can_send = await self.rate_limiter.check_and_wait(str_chat_id, is_group)
                             if not can_send:
                                 # If rate limit reached, add a delay and notify
-                                logging.warning(f"Rate limit reached for chat {chat_id}, waiting...")
+                                logging.warning(f'Rate limit reached for chat {chat_id}, waiting...')
                                 if index > 0:
                                     # Only add this notification for subsequent chunks
                                     await update.effective_message.reply_text(
                                         message_thread_id=get_forum_thread_id(update),
-                                        text="⚠️ Rate limit reached. Remaining response will be sent shortly.",
+                                        text='⚠️ Rate limit reached. Remaining response will be sent shortly.',
                                     )
                                 await asyncio.sleep(60)  # Wait for a minute
                                 # Try again after waiting
                                 can_send = await self.rate_limiter.check_and_wait(str_chat_id, is_group)
-                            
+
                             if can_send:
                                 sent_msg = await update.effective_message.reply_text(
                                     message_thread_id=get_forum_thread_id(update),
@@ -1574,15 +1573,15 @@ class ChatGPTTelegramBot:
                                 )
                                 self.save_reply(sent_msg, update)
                             else:
-                                logging.error(f"Failed to send chunk due to rate limits even after waiting")
+                                logging.error('Failed to send chunk due to rate limits even after waiting')
                         except Exception:
                             try:
                                 # Check rate limits before retrying
                                 can_send = await self.rate_limiter.check_and_wait(str_chat_id, is_group)
                                 if not can_send:
-                                    logging.warning(f"Rate limit reached for chat {chat_id}, skipping chunk")
+                                    logging.warning(f'Rate limit reached for chat {chat_id}, skipping chunk')
                                     continue
-                                    
+
                                 sent_msg = await update.effective_message.reply_text(
                                     message_thread_id=get_forum_thread_id(update),
                                     reply_to_message_id=get_reply_to_message_id(self.config, update)
@@ -1724,9 +1723,9 @@ class ChatGPTTelegramBot:
                             # Check rate limits before sending first update
                             can_send = await self.rate_limiter.check_and_wait(str_user_id, False)
                             if not can_send:
-                                logging.warning(f"Rate limit reached for user {user_id}, waiting for next update")
+                                logging.warning(f'Rate limit reached for user {user_id}, waiting for next update')
                                 continue
-                                
+
                             await edit_message_with_retry(
                                 context,
                                 chat_id=None,
@@ -1744,17 +1743,17 @@ class ChatGPTTelegramBot:
                             should_update = tokens != 'not_finished' or self.rate_limiter.should_update(
                                 str_user_id, False, len(content), len(prev), cutoff
                             )
-                            
+
                             # If we shouldn't update, skip this iteration
                             if not should_update:
                                 continue
-                                
+
                             # Check rate limits before updating message
                             can_send = await self.rate_limiter.check_and_wait(str_user_id, False)
                             if not can_send:
-                                logging.warning(f"Rate limit reached for user {user_id}, skipping update")
+                                logging.warning(f'Rate limit reached for user {user_id}, skipping update')
                                 continue
-                                
+
                             use_markdown = tokens != 'not_finished'
                             divider = '_' if use_markdown else ''
                             text = f'{query}\n\n{divider}{answer_tr}:{divider}\n{content}'
@@ -1808,7 +1807,7 @@ class ChatGPTTelegramBot:
                 if is_direct_result(response):
                     logging.info('Received direct result, not supported in inline mode')
                     unavailable_message = localized_text('function_unavailable_in_inline_mode', bot_language)
-                    
+
                     # Check rate limits before sending final message
                     can_send = await self.rate_limiter.check_and_wait(str_user_id, False)
                     if can_send:
@@ -1836,7 +1835,7 @@ class ChatGPTTelegramBot:
                         is_inline=True,
                     )
                 else:
-                    logging.warning(f"Rate limit reached for user {user_id}, waiting to send final response")
+                    logging.warning(f'Rate limit reached for user {user_id}, waiting to send final response')
                     await asyncio.sleep(1)  # Wait a bit
                     # Try one more time
                     can_send = await self.rate_limiter.check_and_wait(str_user_id, False)

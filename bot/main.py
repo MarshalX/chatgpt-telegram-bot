@@ -7,6 +7,36 @@ from plugin_manager import PluginManager
 from telegram_bot import ChatGPTTelegramBot
 
 
+def read_prompt_from_file(file_path_env_var, default_path, fallback_env_var, default_value):
+    """
+    Read prompt from a file, with fallback to environment variable.
+    Args:
+        file_path_env_var: The environment variable containing the path to the file
+        default_path: Default path to use if file_path_env_var is not set
+        fallback_env_var: The environment variable to use as fallback
+        default_value: Default value to use if neither file nor environment variable exists
+    Returns:
+        The prompt text
+    """
+    # Get file path from env var or use default
+    file_path = os.environ.get(file_path_env_var, default_path)
+
+    # Try to read from file first
+    if file_path and os.path.isfile(file_path):
+        try:
+            with open(file_path, 'r', encoding='utf-8') as file:
+                content = file.read().strip()
+                if content:  # Ensure content is not empty
+                    logging.info(f'Read prompt from file: {file_path}')
+                    return content
+        except Exception as e:
+            logging.warning(f'Failed to read prompt from file {file_path}: {e}')
+
+    # Fallback to environment variable
+    env_value = os.environ.get(fallback_env_var, default_value)
+    return env_value
+
+
 def main():
     # Read .env file
     load_dotenv()
@@ -30,6 +60,18 @@ def main():
     model = os.environ.get('OPENAI_MODEL', 'gpt-4.1-mini')
     functions_available = are_functions_available(model=model)
     max_output_tokens_default = default_max_output_tokens(model=model)
+
+    # Read prompts from files or environment variables
+    assistant_prompt = read_prompt_from_file(
+        'ASSISTANT_PROMPT_FILE', 'prompts/assistant_prompt.txt', 'ASSISTANT_PROMPT', 'You are a helpful assistant.'
+    )
+
+    vision_prompt = read_prompt_from_file(
+        'VISION_PROMPT_FILE', 'prompts/vision_prompt.txt', 'VISION_PROMPT', 'What is in this image'
+    )
+
+    whisper_prompt = read_prompt_from_file('WHISPER_PROMPT_FILE', 'prompts/whisper_prompt.txt', 'WHISPER_PROMPT', '')
+
     openai_config = {
         'api_key': os.environ['OPENAI_API_KEY'],
         'show_usage': os.environ.get('SHOW_USAGE', 'true').lower() == 'true',
@@ -37,7 +79,7 @@ def main():
         'proxy': os.environ.get('PROXY', None) or os.environ.get('OPENAI_PROXY', None),
         'max_history_size': int(os.environ.get('MAX_HISTORY_SIZE', 500)),
         'max_conversation_age_minutes': int(os.environ.get('MAX_CONVERSATION_AGE_MINUTES', 10080)),
-        'assistant_prompt': os.environ.get('ASSISTANT_PROMPT', 'You are a helpful assistant.'),
+        'assistant_prompt': assistant_prompt,
         'max_output_tokens': int(os.environ.get('MAX_OUTPUT_TOKENS', max_output_tokens_default)),
         'n_choices': int(os.environ.get('N_CHOICES', 1)),
         'temperature': float(os.environ.get('TEMPERATURE', 1.0)),
@@ -52,11 +94,11 @@ def main():
         'frequency_penalty': float(os.environ.get('FREQUENCY_PENALTY', 0.0)),
         'bot_language': os.environ.get('BOT_LANGUAGE', 'en'),
         'show_plugins_used': os.environ.get('SHOW_PLUGINS_USED', 'false').lower() == 'true',
-        'whisper_prompt': os.environ.get('WHISPER_PROMPT', ''),
+        'whisper_prompt': whisper_prompt,
         'vision_model': os.environ.get('VISION_MODEL', 'gpt-4.1-mini'),
         'enable_vision_follow_up_questions': os.environ.get('ENABLE_VISION_FOLLOW_UP_QUESTIONS', 'true').lower()
         == 'true',
-        'vision_prompt': os.environ.get('VISION_PROMPT', 'What is in this image'),
+        'vision_prompt': vision_prompt,
         'vision_detail': os.environ.get('VISION_DETAIL', 'auto'),
         'vision_max_output_tokens': int(os.environ.get('VISION_MAX_OUTPUT_TOKENS', '1024')),
         'tts_model': os.environ.get('TTS_MODEL', 'tts-1'),
