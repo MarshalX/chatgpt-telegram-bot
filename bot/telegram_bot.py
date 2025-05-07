@@ -128,6 +128,10 @@ class ChatGPTTelegramBot:
         self.replies_tracker = {}
         self.pending_quality_confirmations = {}  # Store pending confirmations
 
+        # Rate limiting tracking
+        self.chat_message_timestamps = {}  # {chat_id: [timestamp1, timestamp2, ...]}
+        self.last_edit_timestamps = {}  # {chat_id: datetime}
+
     def get_thread_id(self, update: Update) -> str:
         c = update.effective_chat.id
         m = update.effective_message
@@ -989,6 +993,11 @@ class ChatGPTTelegramBot:
                 self.usage[user_id] = UsageTracker(user_id, update.message.from_user.name)
 
             if self.config['stream']:
+                await update.effective_message.reply_chat_action(
+                    action=constants.ChatAction.TYPING,
+                    message_thread_id=get_forum_thread_id(update),
+                )
+
                 stream_response = self.openai.interpret_image_stream(
                     chat_id=ai_context_id, fileobj=temp_file_png, prompt=prompt, user_id=str(user_id)
                 )
@@ -996,8 +1005,19 @@ class ChatGPTTelegramBot:
                 prev = ''
                 sent_message = None
                 backoff = 0
-                stream_chunk = 0
                 processed_chunks = []  # Track which chunks have been processed
+
+                # Rate limiting tracking
+                if chat_id not in self.chat_message_timestamps:
+                    self.chat_message_timestamps[chat_id] = []
+
+                # Maintain a minute-long window of message timestamps
+                now = datetime.now()
+                self.chat_message_timestamps[chat_id] = [
+                    ts for ts in self.chat_message_timestamps[chat_id] if (now - ts).total_seconds() < 60
+                ]
+                recent_msg_count = len(self.chat_message_timestamps[chat_id])
+                last_edit_time = self.last_edit_timestamps.get(chat_id)
 
                 async for content, tokens in stream_response:
                     if is_direct_result(content):
@@ -1010,7 +1030,7 @@ class ChatGPTTelegramBot:
                     if len(stream_chunks) > 1:
                         # Keep track of the last chunk as current content
                         content = stream_chunks[-1]
-                        
+
                         # Process any new complete chunks
                         for chunk_idx in range(len(processed_chunks), len(stream_chunks) - 1):
                             try:
@@ -1022,18 +1042,24 @@ class ChatGPTTelegramBot:
                                         str(sent_message.message_id),
                                         stream_chunks[chunk_idx],
                                     )
-                                
+                                    self.last_edit_timestamps[chat_id] = datetime.now()
+
                                 # Create a new message for the next chunk (current content)
                                 sent_message = await update.effective_message.reply_text(
                                     message_thread_id=get_forum_thread_id(update),
                                     text=content if len(content) > 0 else '...',
                                 )
                                 self.save_reply(sent_message, update)
+
+                                # Track this message for rate limiting
+                                self.chat_message_timestamps[chat_id].append(datetime.now())
+                                recent_msg_count = len(self.chat_message_timestamps[chat_id])
+
                                 processed_chunks.append(chunk_idx)
                             except Exception as e:
-                                logging.error(f"Error handling chunk: {e}")
+                                logging.error(f'Error handling chunk: {e}')
                                 pass
-                        
+
                         # If we've processed all complete chunks, continue streaming with the last chunk
                         if len(processed_chunks) == len(stream_chunks) - 1:
                             # We've handled all complete chunks, continue with normal streaming for the last chunk
@@ -1042,7 +1068,10 @@ class ChatGPTTelegramBot:
                             # We still have unprocessed complete chunks, skip this iteration
                             continue
 
-                    cutoff = get_stream_cutoff_values(update, content)
+                    # Get appropriate cutoff with rate limiting considerations
+                    cutoff = get_stream_cutoff_values(
+                        update, content, last_message_time=last_edit_time, message_count=recent_msg_count
+                    )
                     cutoff += backoff
 
                     if i == 0:
@@ -1058,6 +1087,12 @@ class ChatGPTTelegramBot:
                                 text=content,
                             )
                             self.save_reply(sent_message, update)
+
+                            # Track this message for rate limiting
+                            self.chat_message_timestamps[chat_id].append(datetime.now())
+                            recent_msg_count = len(self.chat_message_timestamps[chat_id])
+                            self.last_edit_timestamps[chat_id] = datetime.now()
+
                         except:
                             continue
 
@@ -1066,6 +1101,15 @@ class ChatGPTTelegramBot:
 
                         try:
                             use_markdown = tokens != 'not_finished'
+
+                            # Consider time-based delays for rate limiting in group chats
+                            now = datetime.now()
+                            if is_group_chat(update) and last_edit_time:
+                                time_since_last = (now - last_edit_time).total_seconds()
+                                # If we're approaching message rate limits, add explicit delay
+                                if recent_msg_count > 15 and time_since_last < 3:
+                                    await asyncio.sleep(3 - time_since_last)
+
                             await edit_message_with_retry(
                                 context,
                                 chat_id,
@@ -1073,6 +1117,9 @@ class ChatGPTTelegramBot:
                                 text=content,
                                 markdown=use_markdown,
                             )
+
+                            # Update edit timestamp
+                            self.last_edit_timestamps[chat_id] = datetime.now()
 
                         except RetryAfter as e:
                             backoff += 5
@@ -1088,7 +1135,14 @@ class ChatGPTTelegramBot:
                             backoff += 5
                             continue
 
-                        await asyncio.sleep(0.01)
+                        # Adjust sleep time based on how close we are to rate limits
+                        if is_group_chat(update):
+                            if recent_msg_count > 15:  # Close to the 20/min limit
+                                await asyncio.sleep(min(0.5, 0.01 * recent_msg_count))
+                            else:
+                                await asyncio.sleep(0.01)
+                        else:
+                            await asyncio.sleep(0.01)
 
                     i += 1
                     if tokens != 'not_finished':
@@ -1201,8 +1255,19 @@ class ChatGPTTelegramBot:
                 prev = ''
                 sent_message = None
                 backoff = 0
-                stream_chunk = 0
                 processed_chunks = []  # Track which chunks have been processed
+
+                # Rate limiting tracking
+                if chat_id not in self.chat_message_timestamps:
+                    self.chat_message_timestamps[chat_id] = []
+
+                # Maintain a minute-long window of message timestamps
+                now = datetime.now()
+                self.chat_message_timestamps[chat_id] = [
+                    ts for ts in self.chat_message_timestamps[chat_id] if (now - ts).total_seconds() < 60
+                ]
+                recent_msg_count = len(self.chat_message_timestamps[chat_id])
+                last_edit_time = self.last_edit_timestamps.get(chat_id)
 
                 async for content, tokens in stream_response:
                     if is_direct_result(content):
@@ -1215,7 +1280,7 @@ class ChatGPTTelegramBot:
                     if len(stream_chunks) > 1:
                         # Keep track of the last chunk as current content
                         content = stream_chunks[-1]
-                        
+
                         # Process any new complete chunks
                         for chunk_idx in range(len(processed_chunks), len(stream_chunks) - 1):
                             try:
@@ -1227,18 +1292,24 @@ class ChatGPTTelegramBot:
                                         str(sent_message.message_id),
                                         stream_chunks[chunk_idx],
                                     )
-                                
+                                    self.last_edit_timestamps[chat_id] = datetime.now()
+
                                 # Create a new message for the next chunk (current content)
                                 sent_message = await update.effective_message.reply_text(
                                     message_thread_id=get_forum_thread_id(update),
                                     text=content if len(content) > 0 else '...',
                                 )
                                 self.save_reply(sent_message, update)
+
+                                # Track this message for rate limiting
+                                self.chat_message_timestamps[chat_id].append(datetime.now())
+                                recent_msg_count = len(self.chat_message_timestamps[chat_id])
+
                                 processed_chunks.append(chunk_idx)
                             except Exception as e:
-                                logging.error(f"Error handling chunk: {e}")
+                                logging.error(f'Error handling chunk: {e}')
                                 pass
-                        
+
                         # If we've processed all complete chunks, continue streaming with the last chunk
                         if len(processed_chunks) == len(stream_chunks) - 1:
                             # We've handled all complete chunks, continue with normal streaming for the last chunk
@@ -1247,7 +1318,10 @@ class ChatGPTTelegramBot:
                             # We still have unprocessed complete chunks, skip this iteration
                             continue
 
-                    cutoff = get_stream_cutoff_values(update, content)
+                    # Get appropriate cutoff with rate limiting considerations
+                    cutoff = get_stream_cutoff_values(
+                        update, content, last_message_time=last_edit_time, message_count=recent_msg_count
+                    )
                     cutoff += backoff
 
                     if i == 0:
@@ -1263,6 +1337,12 @@ class ChatGPTTelegramBot:
                                 text=content,
                             )
                             self.save_reply(sent_message, update)
+
+                            # Track this message for rate limiting
+                            self.chat_message_timestamps[chat_id].append(datetime.now())
+                            recent_msg_count = len(self.chat_message_timestamps[chat_id])
+                            self.last_edit_timestamps[chat_id] = datetime.now()
+
                         except:
                             continue
 
@@ -1271,6 +1351,15 @@ class ChatGPTTelegramBot:
 
                         try:
                             use_markdown = tokens != 'not_finished'
+
+                            # Consider time-based delays for rate limiting in group chats
+                            now = datetime.now()
+                            if is_group_chat(update) and last_edit_time:
+                                time_since_last = (now - last_edit_time).total_seconds()
+                                # If we're approaching message rate limits, add explicit delay
+                                if recent_msg_count > 15 and time_since_last < 3:
+                                    await asyncio.sleep(3 - time_since_last)
+
                             await edit_message_with_retry(
                                 context,
                                 chat_id,
@@ -1278,6 +1367,9 @@ class ChatGPTTelegramBot:
                                 text=content,
                                 markdown=use_markdown,
                             )
+
+                            # Update edit timestamp
+                            self.last_edit_timestamps[chat_id] = datetime.now()
 
                         except RetryAfter as e:
                             backoff += 5
@@ -1293,7 +1385,14 @@ class ChatGPTTelegramBot:
                             backoff += 5
                             continue
 
-                        await asyncio.sleep(0.01)
+                        # Adjust sleep time based on how close we are to rate limits
+                        if is_group_chat(update):
+                            if recent_msg_count > 15:  # Close to the 20/min limit
+                                await asyncio.sleep(min(0.5, 0.01 * recent_msg_count))
+                            else:
+                                await asyncio.sleep(0.01)
+                        else:
+                            await asyncio.sleep(0.01)
 
                     i += 1
                     if tokens != 'not_finished':
@@ -1313,8 +1412,27 @@ class ChatGPTTelegramBot:
                     # Split into chunks of 4096 characters (Telegram's message limit)
                     chunks = split_into_chunks(response)
 
+                    # Rate limiting tracking for non-streaming responses
+                    if chat_id not in self.chat_message_timestamps:
+                        self.chat_message_timestamps[chat_id] = []
+
+                    # Maintain a minute-long window of message timestamps
+                    now = datetime.now()
+                    self.chat_message_timestamps[chat_id] = [
+                        ts for ts in self.chat_message_timestamps[chat_id] if (now - ts).total_seconds() < 60
+                    ]
+
                     for index, chunk in enumerate(chunks):
                         try:
+                            # Check for rate limiting before sending each message in group chats
+                            if is_group_chat(update):
+                                recent_msg_count = len(self.chat_message_timestamps[chat_id])
+                                # Add throttling if approaching the 20 messages per minute limit
+                                if recent_msg_count > 15:
+                                    # Calculate delay based on how close we are to the limit
+                                    delay = min(3.0, 0.2 * (recent_msg_count - 15))
+                                    await asyncio.sleep(delay)
+
                             sent_msg = await update.effective_message.reply_text(
                                 message_thread_id=get_forum_thread_id(update),
                                 reply_to_message_id=get_reply_to_message_id(self.config, update)
@@ -1325,6 +1443,10 @@ class ChatGPTTelegramBot:
                                 disable_web_page_preview=True,
                             )
                             self.save_reply(sent_msg, update)
+
+                            # Track this message for rate limiting
+                            self.chat_message_timestamps[chat_id].append(datetime.now())
+
                         except Exception:
                             try:
                                 sent_msg = await update.effective_message.reply_text(
@@ -1336,6 +1458,10 @@ class ChatGPTTelegramBot:
                                     disable_web_page_preview=True,
                                 )
                                 self.save_reply(sent_msg, update)
+
+                                # Track this message for rate limiting
+                                self.chat_message_timestamps[chat_id].append(datetime.now())
+
                             except Exception as exception:
                                 raise exception
 
@@ -1443,6 +1569,20 @@ class ChatGPTTelegramBot:
                 i = 0
                 prev = ''
                 backoff = 0
+
+                # Rate limiting for inline queries - create a special chat_id for the inline context
+                inline_chat_id = f'inline_{user_id}'
+                if inline_chat_id not in self.chat_message_timestamps:
+                    self.chat_message_timestamps[inline_chat_id] = []
+
+                # Maintain a minute-long window of message timestamps
+                now = datetime.now()
+                self.chat_message_timestamps[inline_chat_id] = [
+                    ts for ts in self.chat_message_timestamps[inline_chat_id] if (now - ts).total_seconds() < 60
+                ]
+                recent_msg_count = len(self.chat_message_timestamps[inline_chat_id])
+                last_edit_time = self.last_edit_timestamps.get(inline_chat_id)
+
                 async for content, tokens in stream_response:
                     if is_direct_result(content):
                         logging.info('Received direct result, not supported in inline mode')
@@ -1471,12 +1611,30 @@ class ChatGPTTelegramBot:
                                 text=f'{query}\n\n{answer_tr}:\n{content}',
                                 is_inline=True,
                             )
+
+                            # Track this edit for rate limiting
+                            self.chat_message_timestamps[inline_chat_id].append(datetime.now())
+                            self.last_edit_timestamps[inline_chat_id] = datetime.now()
+                            recent_msg_count = len(self.chat_message_timestamps[inline_chat_id])
+
                         except Exception:
                             continue
 
                     elif abs(len(content) - len(prev)) > cutoff or tokens != 'not_finished':
                         prev = content
                         try:
+                            # Consider rate limiting - get updated values
+                            cutoff = get_stream_cutoff_values(
+                                update, content, last_message_time=last_edit_time, message_count=recent_msg_count
+                            )
+
+                            # Apply explicit throttling if needed
+                            now = datetime.now()
+                            if last_edit_time:
+                                time_since_last = (now - last_edit_time).total_seconds()
+                                if recent_msg_count > 15 and time_since_last < 2:
+                                    await asyncio.sleep(2 - time_since_last)
+
                             use_markdown = tokens != 'not_finished'
                             divider = '_' if use_markdown else ''
                             text = f'{query}\n\n{divider}{answer_tr}:{divider}\n{content}'
@@ -1493,6 +1651,9 @@ class ChatGPTTelegramBot:
                                 is_inline=True,
                             )
 
+                            # Update timestamp after successful edit
+                            self.last_edit_timestamps[inline_chat_id] = datetime.now()
+
                         except RetryAfter as e:
                             backoff += 5
                             await asyncio.sleep(e.retry_after)
@@ -1505,7 +1666,8 @@ class ChatGPTTelegramBot:
                             backoff += 5
                             continue
 
-                        await asyncio.sleep(0.01)
+                        # Adaptive sleep based on message count
+                        await asyncio.sleep(min(0.5, max(0.01, 0.01 * recent_msg_count)))
 
                     i += 1
                     if tokens != 'not_finished':
@@ -1518,6 +1680,17 @@ class ChatGPTTelegramBot:
                     text=f'{query}\n\n_{answer_tr}:_\n{loading_tr}',
                     parse_mode=constants.ParseMode.MARKDOWN,
                 )
+
+                # Rate limiting for inline queries - create a special chat_id for the inline context
+                inline_chat_id = f'inline_{user_id}'
+                if inline_chat_id not in self.chat_message_timestamps:
+                    self.chat_message_timestamps[inline_chat_id] = []
+
+                # Maintain a minute-long window of message timestamps
+                now = datetime.now()
+                self.chat_message_timestamps[inline_chat_id] = [
+                    ts for ts in self.chat_message_timestamps[inline_chat_id] if (now - ts).total_seconds() < 60
+                ]
 
                 response, total_tokens = await self.openai.get_chat_response(
                     chat_id=str(user_id), query=query, user_id=str(user_id)
@@ -1538,6 +1711,10 @@ class ChatGPTTelegramBot:
                 text_content = f'{query}\n\n_{answer_tr}:_\n{response}'
                 # We only want to send the first 4096 characters. No chunking allowed in inline mode.
                 text_content = text_content[:4096]
+
+                # Track this edit for rate limiting
+                self.chat_message_timestamps[inline_chat_id].append(datetime.now())
+                self.last_edit_timestamps[inline_chat_id] = datetime.now()
 
                 await edit_message_with_retry(
                     context,
