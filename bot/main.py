@@ -112,6 +112,10 @@ def main():
         'transcription_price': float(os.environ.get('TRANSCRIPTION_PRICE', 0.006)),
         'bot_language': os.environ.get('BOT_LANGUAGE', 'en'),
         'database_url': os.environ.get('DATABASE_URL_TO_DROP_ALL_TABLES'),
+        'enable_rate_limit': os.environ.get('ENABLE_RATE_LIMIT', 'true').lower() == 'true',
+        'group_rate_limit': int(os.environ.get('GROUP_RATE_LIMIT', '20')),
+        'private_rate_limit': float(os.environ.get('PRIVATE_RATE_LIMIT', '1.0')),
+        'max_update_frequency': float(os.environ.get('MAX_UPDATE_FREQUENCY', '0.5')),
     }
 
     if model in GPT_SEARCH_MODELS and openai_config['web_search_support_annotations']:

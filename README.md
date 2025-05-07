@@ -78,9 +78,17 @@ The following parameters are optional and can be set in the `.env` file:
 | `IMAGE_PRICES`        | A comma-separated list with 3 elements of prices for the different image sizes: `256x256`, `512x512` and `1024x1024`. Source: https://openai.com/pricing                                                                                                                                                                                                                                  | `0.016,0.018,0.02` |
 | `TRANSCRIPTION_PRICE` | USD-price for one minute of audio transcription. Source: https://openai.com/pricing                                                                                                                                                                                                                                                                                                       | `0.006`            |
 | `VISION_TOKEN_PRICE`  | USD-price per 1K tokens of image interpretation. Source: https://openai.com/pricing                                                                                                                                                                                                                                                                                                       | `0.01`             |
-| `TTS_PRICES`          | A comma-separated list with prices for the tts models: `tts-1`, `tts-1-hd`. Source: https://openai.com/pricing                                                                                                                                                                                                                                                                            | `0.015,0.030`      |
+| `TTS_PRICES`          | A comma-separated list with prices for the tts models: `tts-1`, `tts-1-hd`. Source: https://openai.com/pricing                                                                                                                                                                            | `0.015,0.030`      |
 
 Check out the [Budget Manual](https://github.com/n3d1117/chatgpt-telegram-bot/discussions/184) for possible budget configurations.
+
+#### Rate Limiting
+| Parameter                 | Description                                                                                                                           | Default value |
+|---------------------------|---------------------------------------------------------------------------------------------------------------------------------------|---------------|
+| `ENABLE_RATE_LIMIT`       | Whether to enable rate limiting for Telegram API to avoid hitting limits                                                              | `true`        |
+| `GROUP_RATE_LIMIT`        | Maximum number of messages per minute allowed in group chats (Telegram limit: 20 messages per minute)                                 | `20`          |
+| `PRIVATE_RATE_LIMIT`      | Minimum number of seconds between messages in private chats (to respect the 1 message per second Telegram limit)                      | `1.0`         |
+| `MAX_UPDATE_FREQUENCY`    | Maximum frequency (in seconds) for streaming updates - higher values mean fewer updates but less chance of hitting API limits         | `0.5`         |
 
 #### Additional optional configuration options
 | Parameter                           | Description                                                                                                                                                                                                                                                                             | Default value                      |
