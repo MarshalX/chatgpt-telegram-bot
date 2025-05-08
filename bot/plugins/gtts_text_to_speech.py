@@ -47,4 +47,4 @@ class GTTSTextToSpeech(Plugin):
         file_obj = io.BytesIO()
         tts.write_to_fp(file_obj)
         file_obj.seek(0)
-        return {'direct_result': {'kind': 'voice', 'value': file_obj}}
+        return {'direct_result': {'kind': 'voice', 'voice': file_obj}}

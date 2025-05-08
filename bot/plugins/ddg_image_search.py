@@ -72,13 +72,13 @@ class DDGImageSearchPlugin(Plugin):
                 return {
                     'direct_result': {
                         'kind': 'gif',
-                        'value': results[0]['image'],
+                        'document': results[0]['image'],
                     }
                 }
 
             return {
                 'direct_result': {
                     'kind': 'album',
-                    'value': [result['image'] for result in results],
+                    'photos': [result['image'] for result in results],
                 }
             }

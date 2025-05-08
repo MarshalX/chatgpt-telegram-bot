@@ -1,4 +1,3 @@
-import io
 import logging
 from typing import Dict, List
 
@@ -68,7 +67,7 @@ class CodeExecutionPlugin(Plugin):
         """Execute Python code in an isolated Dagger container"""
 
         # Connect to the Dagger Engine
-        async with dagger.Connection(config=dagger.Config(execute_timeout=timeout, log_output=io.StringIO())) as client:
+        async with dagger.Connection(config=dagger.Config(execute_timeout=timeout)) as client:
             # Get python container
             container = (
                 client.container()

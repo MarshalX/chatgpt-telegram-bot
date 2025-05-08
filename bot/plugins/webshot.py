@@ -56,6 +56,6 @@ class WebshotPlugin(Plugin):
         return {
             'direct_result': {
                 'kind': 'photo',
-                'value': response.content,
+                'photo': response.content,
             }
         }

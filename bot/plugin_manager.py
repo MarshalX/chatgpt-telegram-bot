@@ -5,17 +5,13 @@ from typing import Dict
 from plugins.auto_tts import AutoTextToSpeech
 from plugins.code_execution import CodeExecutionPlugin
 from plugins.ddg_image_search import DDGImageSearchPlugin
-from plugins.dice import DicePlugin
 from plugins.google_web_search import GoogleWebSearchPlugin
 from plugins.gtts_text_to_speech import GTTSTextToSpeech
-from plugins.reaction import ReactionPlugin
-from plugins.spotify import SpotifyPlugin
+from plugins.telegram_direct import TelegramToolkitPlugin
 from plugins.weather import WeatherPlugin
 from plugins.website_content import WebsiteContentPlugin
 from plugins.wolfram_alpha import WolframAlphaPlugin
 from plugins.worldtimeapi import WorldTimeApiPlugin
-from plugins.youtube_audio_extractor import YouTubeAudioExtractorPlugin
-from plugins.youtube_transcript import YoutubeTranscriptPlugin
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 
@@ -26,24 +22,24 @@ class PluginManager:
 
     def __init__(self, config):
         plugin_mapping = {
-            'reaction': ReactionPlugin,
+            'telegram': TelegramToolkitPlugin,
             'wolfram': WolframAlphaPlugin,
             'weather': WeatherPlugin,
             # 'ddg_web_search': DDGWebSearchPlugin,
             # 'ddg_translate': DDGTranslatePlugin,
             'google_web_search': GoogleWebSearchPlugin,
             'ddg_image_search': DDGImageSearchPlugin,
-            'spotify': SpotifyPlugin,
+            # 'spotify': SpotifyPlugin,
             'worldtimeapi': WorldTimeApiPlugin,
-            'youtube_audio_extractor': YouTubeAudioExtractorPlugin,
-            'dice': DicePlugin,
+            # 'youtube_audio_extractor': YouTubeAudioExtractorPlugin,
+            # 'dice': DicePlugin,
             'gtts_text_to_speech': GTTSTextToSpeech,
             'auto_tts': AutoTextToSpeech,
             # 'whois': WhoisPlugin,
             # 'webshot': WebshotPlugin,
             # 'iplocation': IpLocationPlugin,
             'website_content': WebsiteContentPlugin,
-            'youtube_transcript': YoutubeTranscriptPlugin,
+            # 'youtube_transcript': YoutubeTranscriptPlugin,
             'code': CodeExecutionPlugin,
         }
 

@@ -36,4 +36,4 @@ class AutoTextToSpeech(Plugin):
 
     async def execute(self, function_name, helper, **kwargs) -> Dict:
         data, _ = await helper.generate_speech(text=kwargs['text'])
-        return {'direct_result': {'kind': 'voice', 'value': data}}
+        return {'direct_result': {'kind': 'voice', 'voice': data}}

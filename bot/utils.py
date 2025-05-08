@@ -376,7 +376,6 @@ async def handle_direct_result(config, update: Update, response: any, save_reply
 
     result = response['direct_result']
     kind = result['kind']
-    value = result['value']
 
     common_args = {
         'message_thread_id': get_forum_thread_id(update),
@@ -385,19 +384,70 @@ async def handle_direct_result(config, update: Update, response: any, save_reply
 
     sent_msg = None
     if kind == 'photo':
-        sent_msg = await update.effective_message.reply_photo(**common_args, photo=value)
+        sent_msg = await update.effective_message.reply_photo(
+            **common_args, photo=result['photo'], caption=result.get('caption')
+        )
     elif kind == 'album':
-        media = [telegram.InputMediaPhoto(media=photo) for photo in value]
+        media = [telegram.InputMediaPhoto(media=photo) for photo in result['photos']]
+        if 'caption' in result:
+            media[0] = telegram.InputMediaPhoto(media=result['photos'][0], caption=result['caption'])
+
         sent_msgs = await update.effective_message.reply_media_group(**common_args, media=media)
         sent_msg = sent_msgs[-1] if sent_msgs else None
-    elif kind in {'gif', 'file'}:
-        sent_msg = await update.effective_message.reply_document(**common_args, document=value)
+    elif kind in {'gif', 'file', 'document'}:
+        sent_msg = await update.effective_message.reply_document(
+            **common_args, document=result['document'], caption=result.get('caption')
+        )
     elif kind == 'reaction':
-        await update.effective_message.set_reaction(value)
+        await update.effective_message.set_reaction(reaction=result['reaction'])
     elif kind == 'voice':
-        sent_msg = await update.effective_message.reply_voice(**common_args, voice=value)
+        sent_msg = await update.effective_message.reply_voice(
+            **common_args, voice=result['voice'], caption=result.get('caption')
+        )
+    elif kind == 'video_note':
+        sent_msg = await update.effective_message.reply_video_note(
+            **common_args,
+            video_note=result['video_note'],
+        )
+    elif kind == 'video':
+        sent_msg = await update.effective_message.reply_video(
+            **common_args, video=result['video'], caption=result.get('caption')
+        )
+    elif kind == 'audio':
+        sent_msg = await update.effective_message.reply_audio(
+            **common_args, audio=result['audio'], caption=result.get('caption')
+        )
     elif kind == 'dice':
-        sent_msg = await update.effective_message.reply_dice(**common_args, emoji=value)
+        sent_msg = await update.effective_message.reply_dice(**common_args, emoji=result['emoji'])
+    elif kind == 'poll':
+        sent_msg = await update.effective_message.reply_poll(
+            **common_args,
+            question=result['question'],
+            options=result['options'],
+            is_anonymous=result.get('is_anonymous', False),
+            allows_multiple_answers=result.get('allows_multiple_answers', False),
+        )
+    elif kind == 'location':
+        sent_msg = await update.effective_message.reply_location(
+            **common_args,
+            latitude=result['latitude'],
+            longitude=result['longitude'],
+        )
+    elif kind == 'venue':
+        sent_msg = await update.effective_message.reply_venue(
+            **common_args,
+            latitude=result['latitude'],
+            longitude=result['longitude'],
+            title=result['title'],
+            address=result['address'],
+        )
+    elif kind == 'contact':
+        sent_msg = await update.effective_message.reply_contact(
+            **common_args,
+            phone_number=result['phone_number'],
+            first_name=result['first_name'],
+            last_name=result['last_name'],
+        )
 
     if save_reply and sent_msg:
         save_reply(sent_msg, update)

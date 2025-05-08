@@ -43,4 +43,4 @@ class YouTubeAudioExtractorPlugin(Plugin):
         audio = video.streams.filter(only_audio=True).first()
         file_obj = io.BytesIO()
         audio.stream_to_buffer(file_obj)
-        return {'direct_result': {'kind': 'file', 'value': file_obj}}
+        return {'direct_result': {'kind': 'file', 'document': file_obj}}
