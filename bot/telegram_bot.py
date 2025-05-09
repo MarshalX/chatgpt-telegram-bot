@@ -1341,20 +1341,89 @@ class ChatGPTTelegramBot:
             # prevent action on old messages which are not in the memory anymore
             return
 
-        logging.info(
-            f'New reaction received from user {update.effective_sender.name} (id: {update.effective_sender.id})'
-        )
-        new_reactions = set()
-        if update.message_reaction.new_reaction:
-            new_reactions = {r.emoji for r in update.message_reaction.new_reaction}
-
-        if '👍' not in new_reactions and '👎' not in new_reactions:
+        if not update.message_reaction.new_reaction:
             return
 
         emoji_to_message = {
-            '👍': 'Yes',
-            '👎': 'No',
+            '👍': 'Yes, I agree.',
+            '👎': 'No, I don’t think so.',
+            '❤️': 'I really like this.',
+            '🔥': 'This is awesome!',
+            '🥰': 'So sweet, thanks!',
+            '👏': 'Great idea!',
+            '😁': 'Glad to hear that!',
+            '🤔': 'Let me think...',
+            '🤯': 'Wow, that blew my mind!',
+            '😱': 'That’s shocking!',
+            '🤬': 'This is outrageous!',
+            '😢': 'I’m sorry to hear that.',
+            '🎉': 'Congratulations!',
+            '🤩': 'Wow, impressive!',
+            '🤮': 'That’s disgusting.',
+            '💩': 'That’s really bad.',
+            '🙏': 'Please, go on.',
+            '👌': 'I agree, perfect.',
+            '🕊': 'Peace and calm.',
+            '🤡': 'Is this a joke?',
+            '🥱': 'I’m bored...',
+            '🥴': 'I don’t quite understand.',
+            '😍': 'I’m thrilled!',
+            '🐳': 'Interesting, tell me more.',
+            '❤️‍🔥': 'True passion!',
+            '🌚': 'Hmm, mysterious.',
+            '🌭': 'Odd choice, but okay.',
+            '💯': 'Totally support that.',
+            '🤣': 'Haha, that’s funny!',
+            '⚡': 'That’s very energetic!',
+            '🍌': 'Unexpected!',
+            '🏆': 'Great achievement!',
+            '💔': 'That’s sad.',
+            '🤨': 'That seems doubtful to me.',
+            '😐': 'Neutral stance.',
+            '🍓': 'I love it.',
+            '🍾': 'Time to celebrate!',
+            '💋': 'Sending love!',
+            '🖕': 'That’s rude!',
+            '😈': 'Alright, let’s play naughty.',
+            '😴': 'I need to rest.',
+            '😭': 'Very touching.',
+            '🤓': 'Interesting fact, thanks!',
+            '👻': 'Was there a ghost here?',
+            '👨‍💻': 'Let’s code!',
+            '👀': 'I’m watching closely.',
+            '🎃': 'Happy Halloween!',
+            '🙈': 'I didn’t see that.',
+            '😇': 'Good idea!',
+            '😨': 'That’s scary.',
+            '🤝': 'Agreed.',
+            '✍': 'Noting it down.',
+            '🤗': 'Hugs!',
+            '🫡': 'Order received!',
+            '🎅': 'Merry Christmas!',
+            '🎄': 'Festive mood!',
+            '☃': 'Winter wonderland.',
+            '💅': 'Stylish indeed.',
+            '🤪': 'A bit crazy?',
+            '🗿': 'No emotions...',
+            '🆒': 'Very cool!',
+            '💘': 'In love!',
+            '🙉': 'I don’t want to hear that.',
+            '🦄': 'Something magical!',
+            '😘': 'Kisses!',
+            '💊': 'Need some help?',
+            '🙊': 'Won’t say a thing.',
+            '😎': 'Cool and confident.',
+            '👾': 'Exciting!',
+            '🤷‍♂️': 'Don’t know what to say.',
+            '🤷': 'No opinion yet.',
+            '🤷‍♀️': 'I’m not sure.',
+            '😡': 'This annoys me.',
         }
+
+        new_reactions = {r.emoji for r in update.message_reaction.new_reaction}
+        text = ''.join(emoji_to_message.get(emoji, '') for emoji in new_reactions)
+
+        logging.info(f'New reaction received from user {update.effective_sender.name} (TEXT: {text})')
 
         new_update = Update(
             update_id=update.update_id,
@@ -1363,7 +1432,7 @@ class ChatGPTTelegramBot:
                 date=update.message_reaction.date,
                 chat=update.message_reaction.chat,
                 from_user=update.message_reaction.user,
-                text=''.join(emoji_to_message[emoji] for emoji in new_reactions),
+                text=text,
                 reply_to_message=Message(  # required for context id resolving
                     message_id=update.message_reaction.message_id,
                     date=update.message_reaction.date,
