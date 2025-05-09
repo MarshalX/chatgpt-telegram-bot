@@ -1368,7 +1368,7 @@ class ChatGPTTelegramBot:
                     message_id=update.message_reaction.message_id,
                     date=update.message_reaction.date,
                     chat=update.message_reaction.chat,
-                    from_user=update.message_reaction.user,
+                    from_user=context.bot.bot,  # fake bot's message to bypass group trigger prefix
                 ),
             ),
         )
