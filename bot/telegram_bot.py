@@ -39,6 +39,7 @@ from telegram.ext import (
     ContextTypes,
     InlineQueryHandler,
     MessageHandler,
+    MessageReactionHandler,
     filters,
 )
 from usage_tracker import UsageTracker
@@ -1331,6 +1332,48 @@ class ChatGPTTelegramBot:
 
         await wrap_with_indicator(update, context, _execute, constants.ChatAction.TYPING)
 
+    async def reaction(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """
+        React to incoming reactions and respond accordingly.
+        """
+        logging.info(
+            f'New reaction received from user {update.effective_sender.name} (id: {update.effective_sender.id})'
+        )
+        new_reactions = set()
+        if update.message_reaction.new_reaction:
+            new_reactions = {r.emoji for r in update.message_reaction.new_reaction}
+
+        if '👍' not in new_reactions and '👎' not in new_reactions:
+            return
+
+        emoji_to_message = {
+            '👍': 'Yes',
+            '👎': 'No',
+        }
+
+        new_update = Update(
+            update_id=update.update_id,
+            message=Message(  # required to behave like usual prompt
+                message_id=update.message_reaction.message_id,
+                date=update.message_reaction.date,
+                chat=update.message_reaction.chat,
+                from_user=update.message_reaction.user,
+                text=''.join(emoji_to_message[emoji] for emoji in new_reactions),
+                reply_to_message=Message(  # required for context id resolving
+                    message_id=update.message_reaction.message_id,
+                    date=update.message_reaction.date,
+                    chat=update.message_reaction.chat,
+                ),
+            ),
+        )
+
+        # required to enable shortcuts:
+        new_update.set_bot(update.get_bot())
+        new_update.message.set_bot(update.get_bot())
+
+        # now call with fake compatible update
+        await self.prompt(new_update, context)
+
     @with_conversation_lock
     async def prompt(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """
@@ -1342,10 +1385,8 @@ class ChatGPTTelegramBot:
         if not await self.check_allowed_and_within_budget(update, context):
             return
 
-        logging.info(
-            f'New message received from user {update.message.from_user.name} (id: {update.message.from_user.id})'
-        )
         ai_context_id = self.get_thread_id(update)
+        logging.info(f'New message received from user {update.message.from_user.name} (CTX: {ai_context_id})')
         chat_id = update.effective_chat.id
         user_id = update.message.from_user.id
         prompt = message_text(update.message)
@@ -1969,6 +2010,11 @@ class ChatGPTTelegramBot:
             )
         )
         application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), self.prompt))
+        application.add_handler(
+            MessageReactionHandler(
+                self.reaction, message_reaction_types=MessageReactionHandler.MESSAGE_REACTION_UPDATED
+            )
+        )
         application.add_handler(CallbackQueryHandler(self.handle_improve_quality, pattern='^improve_quality:'))
         application.add_handler(CallbackQueryHandler(self.handle_show_quality, pattern='^show_quality:'))
         application.add_handler(CallbackQueryHandler(self.handle_quality_confirmation, pattern='^confirm_quality:'))
@@ -1988,4 +2034,4 @@ class ChatGPTTelegramBot:
 
         application.add_error_handler(error_handler)
 
-        application.run_polling()
+        application.run_polling(allowed_updates=Update.ALL_TYPES)
