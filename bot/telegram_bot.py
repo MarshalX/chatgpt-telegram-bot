@@ -1336,6 +1336,11 @@ class ChatGPTTelegramBot:
         """
         React to incoming reactions and respond accordingly.
         """
+        if is_group_chat(update) and update.message_reaction.message_id not in self.replies_tracker:
+            # prevent action on non-bot messages
+            # prevent action on old messages which are not in the memory anymore
+            return
+
         logging.info(
             f'New reaction received from user {update.effective_sender.name} (id: {update.effective_sender.id})'
         )
