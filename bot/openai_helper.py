@@ -136,33 +136,34 @@ def are_functions_available(model: str) -> bool:
 
 
 _MODELS_COST = {
-    # tuples of input price, output price per 1M in $
+    # tuples of input price, cached input price, output price per 1M in $
     # ref: https://openai.com/api/pricing/
-    'gpt-4o-2024-05-13': (5, 15),
-    'gpt-4o-2024-08-06': (2.5, 10),
-    'gpt-4o': (2.5, 10),
-    'gpt-4o-mini': (0.15, 0.6),
-    'gpt-4o-mini-2024-07-18': (0.15, 0.6),
-    'gpt-4o-search-preview': (2.5, 10),
-    'gpt-4o-mini-search-preview': (0.15, 0.6),
-    'gpt-4.1': (2, 8),
-    'gpt-4.1-mini': (0.4, 1.6),
-    'gpt-4.1-nano': (0.1, 0.4),
-    'gpt-image-1': (5, 40, 10),  # text input, image output, input image
+    'gpt-4o': (2.5, 1.25, 10),
+    'gpt-4o-mini': (0.15, 0.075, 0.6),
+    'gpt-4o-search-preview': (2.5, 2.5, 10),
+    'gpt-4o-mini-search-preview': (0.15, 2.5, 0.6),
+    'gpt-4.1': (2, 0.5, 8),
+    'gpt-4.1-mini': (0.4, 0.1, 1.6),
+    'gpt-4.1-nano': (0.1, 0.025, 0.4),
+    'gpt-image-1': (5, 5, 40, 10),  # text input, cached input price, image output, input image
 }
 _DEFAULT_MODEL_PRICE = (0, 0)
 
 
 def get_model_cost(model: str, usage: Union[Usage, CompletionUsage]) -> float:
-    input_price_per_m, output_price_per_m, *extra_prices = _MODELS_COST.get(model, _DEFAULT_MODEL_PRICE)
+    input_price_per_m, cached_input_price_per_m, output_price_per_m, *extra_prices = _MODELS_COST.get(
+        model, _DEFAULT_MODEL_PRICE
+    )
 
     input_price = input_price_per_m / 1_000_000
     output_price = output_price_per_m / 1_000_000
+    cached_input_price = cached_input_price_per_m / 1_000_000
 
     extra_total = 0
     if isinstance(usage, Usage):
         input_tokens = usage.input_tokens
         output_tokens = usage.output_tokens
+        cached_input_tokens = 0
 
         if usage.input_tokens_details:
             input_tokens = usage.input_tokens_details.text_tokens
@@ -175,7 +176,17 @@ def get_model_cost(model: str, usage: Union[Usage, CompletionUsage]) -> float:
         input_tokens = usage.prompt_tokens
         output_tokens = usage.completion_tokens
 
-    return (input_price * input_tokens) + (output_price * output_tokens) + extra_total
+        cached_input_tokens = 0
+        if usage.prompt_tokens_details:
+            cached_input_tokens = usage.prompt_tokens_details.cached_tokens
+            input_tokens -= cached_input_tokens  # cached tokens are charged at the cached input price
+
+    return (
+        (input_price * input_tokens)
+        + (cached_input_price * cached_input_tokens)
+        + (output_price * output_tokens)
+        + extra_total
+    )
 
 
 def get_formatted_price(cost: float) -> str:

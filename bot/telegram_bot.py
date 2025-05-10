@@ -1345,8 +1345,8 @@ class ChatGPTTelegramBot:
             return
 
         emoji_to_message = {
-            '👍': 'Yes, I agree.',
-            '👎': 'No, I don’t think so.',
+            '👍': 'Yes.',
+            '👎': 'No.',
             '❤️': 'I really like this.',
             '🔥': 'This is awesome!',
             '🥰': 'So sweet, thanks!',
@@ -1422,6 +1422,8 @@ class ChatGPTTelegramBot:
 
         new_reactions = {r.emoji for r in update.message_reaction.new_reaction}
         text = ''.join(emoji_to_message.get(emoji, '') for emoji in new_reactions)
+        if not text.strip():
+            return
 
         logging.info(f'New reaction received from user {update.effective_sender.name} (TEXT: {text})')
 
