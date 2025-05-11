@@ -1,18 +1,22 @@
 import json
 import logging
-from typing import Dict
+from typing import TYPE_CHECKING, Dict
 
 from plugins.auto_tts import AutoTextToSpeech
 from plugins.code_execution import CodeExecutionPlugin
 from plugins.ddg_image_search import DDGImageSearchPlugin
 from plugins.google_web_search import GoogleWebSearchPlugin
 from plugins.gtts_text_to_speech import GTTSTextToSpeech
+from plugins.sequential_thinking import SequentialThinkingPlugin
 from plugins.telegram_direct import TelegramToolkitPlugin
 from plugins.weather import WeatherPlugin
 from plugins.website_content import WebsiteContentPlugin
 from plugins.wolfram_alpha import WolframAlphaPlugin
 from plugins.worldtimeapi import WorldTimeApiPlugin
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+
+if TYPE_CHECKING:
+    from openai_helper import OpenAIHelper
 
 
 class PluginManager:
@@ -41,6 +45,7 @@ class PluginManager:
             'website_content': WebsiteContentPlugin,
             # 'youtube_transcript': YoutubeTranscriptPlugin,
             'code': CodeExecutionPlugin,
+            'thinking': SequentialThinkingPlugin,
         }
 
         enabled_plugins = config.get('plugins', [])
@@ -61,14 +66,14 @@ class PluginManager:
         wait=wait_exponential_jitter(),
         stop=stop_after_attempt(3),
     )
-    async def call_function(self, function_name, helper, arguments) -> Dict:
+    async def call_function(self, chat_id: str, function_name: str, helper: 'OpenAIHelper', arguments: str) -> Dict:
         try:
-            return await self.__call_function(function_name, helper, arguments)
+            return await self.__call_function(chat_id, function_name, helper, arguments)
         except Exception as e:
             logging.error(f'Error calling function {function_name}:', exc_info=e)
             return {'error': f'Error calling function {function_name}'}
 
-    async def __call_function(self, function_name, helper, arguments) -> Dict:
+    async def __call_function(self, chat_id: str, function_name: str, helper: 'OpenAIHelper', arguments: str) -> Dict:
         """
         Call a function based on the name and parameters provided
         """
@@ -76,7 +81,7 @@ class PluginManager:
         if not plugin:
             return {'error': f'Function {function_name} not found'}
 
-        return await plugin.execute(function_name, helper, **json.loads(arguments))
+        return await plugin.execute(function_name, helper, **json.loads(arguments), chat_id=chat_id)
 
     def get_plugin_source_name(self, function_name) -> str:
         """

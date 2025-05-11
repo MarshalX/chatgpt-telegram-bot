@@ -558,7 +558,7 @@ class OpenAIHelper:
         await self.__add_tool_call_to_history(chat_id, tool_call, arguments)
 
         logging.info(f'Calling function {function_name} with arguments {arguments}')
-        function_response = await self.plugin_manager.call_function(function_name, self, arguments)
+        function_response = await self.plugin_manager.call_function(chat_id, function_name, self, arguments)
         function_response_json = json.dumps(function_response, default=str)
         logging.info(f'Function {function_name} returned {function_response_json[:100]}')
 
