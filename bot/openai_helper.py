@@ -511,7 +511,6 @@ class OpenAIHelper:
     async def __handle_function_call(
         self, chat_id, response, stream=False, times=0, plugins_used=(), user_id: Optional[str] = None
     ):
-        # FIXME misses correct count of tokens on chained function calls
         # TODO add support of parallel_tool_calls
         final_tool_calls = {}
 
@@ -548,7 +547,8 @@ class OpenAIHelper:
 
         if len(final_tool_calls) > 1:
             logging.warning(
-                f'Got multiple tool calls: {final_tool_calls}. Which is not supported yet. Only the first one will be used.'
+                f'[FUNC CALL] Got multiple tool calls: {final_tool_calls}. '
+                f'Which is not supported yet. Only the first one will be used.'
             )
 
         tool_call = final_tool_calls[0]
@@ -557,15 +557,36 @@ class OpenAIHelper:
 
         await self.__add_tool_call_to_history(chat_id, tool_call, arguments)
 
-        logging.info(f'Calling function {function_name} with arguments {arguments}')
+        logging.info(f'[FUNC CALL][{times}] Calling "{function_name}" with arguments {arguments}')
         function_response = await self.plugin_manager.call_function(chat_id, function_name, self, arguments)
         function_response_json = json.dumps(function_response, default=str)
-        logging.info(f'Function {function_name} returned {function_response_json[:100]}')
 
         if function_name not in plugins_used:
             plugins_used += (function_name,)
 
+        if stream:
+            usage = None
+            # this is a chained function call
+            # we do not need this response anymore except for finding usage
+            async for chunk in response:
+                if chunk.usage:
+                    usage = chunk.usage
+                    break
+        else:
+            usage = response.usage
+
+        cost = 0
+        if usage:
+            # for chained function calls we process cost here (intermediate calls)
+            # otherwise it will be calculated outside in the response handler (final or the only one call)
+            cost = get_model_cost(self.config['model'], usage)
+            self.add_cost(chat_id, cost)
+
+        price = get_formatted_price(cost)
+        logging.info(f'[FUNC CALL][{times}] "{function_name}" costed {price} returned {function_response_json[:100]}')
+
         if is_direct_result(function_response):
+            logging.info(f'[FUNC CALL][{times}] "{function_name}" returned a direct result')
             await self.__add_tool_call_result_to_history(
                 chat_id=chat_id,
                 tool_call_id=tool_call.id,

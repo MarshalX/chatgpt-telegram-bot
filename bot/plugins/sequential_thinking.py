@@ -14,7 +14,7 @@ class SequentialThinkingPlugin(Plugin):
         self.branches_counter = defaultdict(lambda: defaultdict(int))
 
     def get_source_name(self) -> str:
-        return 'SequentialThinking'
+        return 'Sequential Thinking'
 
     def get_spec(self) -> List[Dict]:
         return [
@@ -197,8 +197,8 @@ Thought: {thought}
                 self.branches_counter[chat_id][branch_id] += 1
 
             # Format thought for display and log it
-            formatted_thought = self._format_thought(validated_input)
-            print(formatted_thought)  # Log the thought to console
+            # formatted_thought = self._format_thought(validated_input)
+            # print(formatted_thought)  # Log the thought to console
 
             # Return the result
             return {
