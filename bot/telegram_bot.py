@@ -296,6 +296,7 @@ class ChatGPTTelegramBot:
         
         if is_private_chat(update):
             return
+
         self.replies_tracker[msg.message_id] = self.get_real_thread_id(update)
 
     async def help(self, update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
