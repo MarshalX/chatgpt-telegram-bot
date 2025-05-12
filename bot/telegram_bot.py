@@ -292,7 +292,7 @@ class ChatGPTTelegramBot:
         return self.replies_tracker[m.id]
 
     def save_reply(self, msg: Message, update: Update):
-        self.bot_message_ids.add((msg.chat_id, msg.message_id))
+        self.bot_message_ids.add((msg.chat.id, msg.message_id))
         
         if is_private_chat(update):
             return
