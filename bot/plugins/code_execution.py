@@ -161,8 +161,8 @@ class CodeExecutionPlugin(Plugin):
         container = (
             client.container()
             .from_(_IMAGE_NAME)
-            .with_new_file(f'/app/requirements_{_REQUIREMENTS_CACHE_KEY}.txt', contents='\n'.join(_LIST_OF_PACKAGES))
-            .with_exec(['pip', 'install', '-r', f'/app/requirements_{_REQUIREMENTS_CACHE_KEY}.txt'])
+            # .with_new_file(f'/app/requirements_{_REQUIREMENTS_CACHE_KEY}.txt', contents='\n'.join(_LIST_OF_PACKAGES))
+            # .with_exec(['pip', 'install', '-r', f'/app/requirements_{_REQUIREMENTS_CACHE_KEY}.txt'])
             .with_workdir('/app')
         )
 
