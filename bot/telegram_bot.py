@@ -251,6 +251,7 @@ class ChatGPTTelegramBot:
         self.image_quality_cache = {}
         self.image_to_edit_cache = {}  # Cache for storing image to edit data
         self.replies_tracker = {}
+        self.bot_messages_ids = set()
         self.pending_quality_confirmations = {}  # Store pending confirmations
 
     def get_thread_id(self, update: Update) -> str:
@@ -291,9 +292,10 @@ class ChatGPTTelegramBot:
         return self.replies_tracker[m.id]
 
     def save_reply(self, msg: Message, update: Update):
+        self.bot_message_ids.add((msg.chat_id, msg.message_id))
+        
         if is_private_chat(update):
             return
-
         self.replies_tracker[msg.message_id] = self.get_real_thread_id(update)
 
     async def help(self, update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1336,7 +1338,8 @@ class ChatGPTTelegramBot:
         """
         React to incoming reactions and respond accordingly.
         """
-        if is_group_chat(update) and update.message_reaction.message_id not in self.replies_tracker:
+        reaction_msg_key = (update.message_reaction.chat.id, update.message_reaction.message_id)
+        if is_group_chat(update) and reaction_msg_key not in self.bot_message_ids:
             # prevent action on non-bot messages
             # prevent action on old messages which are not in the memory anymore
             return
