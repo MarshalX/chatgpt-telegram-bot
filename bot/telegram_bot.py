@@ -2053,8 +2053,8 @@ class ChatGPTTelegramBot:
         application = (
             ApplicationBuilder()
             .token(self.config['token'])
-            .proxy_url(self.config['proxy'])
-            .get_updates_proxy_url(self.config['proxy'])
+            .proxy(self.config['proxy'])
+            .get_updates_proxy(self.config['proxy'])
             .post_init(self.post_init)
             .post_shutdown(self.post_shutdown)
             .concurrent_updates(True)

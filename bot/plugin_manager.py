@@ -81,6 +81,10 @@ class PluginManager:
         if not plugin:
             return {'error': f'Function {function_name} not found'}
 
+        if not getattr(plugin, '_bootstrap', True):
+            logging.info(f'Bootstrapping plugin {plugin.get_source_name()}')
+            await plugin.bootstrap()
+
         return await plugin.execute(function_name, helper, **json.loads(arguments), chat_id=chat_id)
 
     def get_plugin_source_name(self, function_name) -> str:
