@@ -1339,7 +1339,7 @@ class ChatGPTTelegramBot:
         React to incoming reactions and respond accordingly.
         """
         reaction_msg_key = (update.message_reaction.chat.id, update.message_reaction.message_id)
-        if is_group_chat(update) and reaction_msg_key not in self.bot_message_ids:
+        if reaction_msg_key not in self.bot_message_ids:
             # prevent action on non-bot messages
             # prevent action on old messages which are not in the memory anymore
             return
