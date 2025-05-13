@@ -26,6 +26,7 @@ from telegram import (
     InputMediaPhoto,
     InputTextMessageContent,
     Message,
+    ReactionTypeEmoji,
     Update,
     constants,
 )
@@ -1424,7 +1425,7 @@ class ChatGPTTelegramBot:
             '😡': 'This annoys me.',
         }
 
-        new_reactions = {r.emoji for r in update.message_reaction.new_reaction}
+        new_reactions = {r.emoji for r in update.message_reaction.new_reaction if isinstance(r, ReactionTypeEmoji)}
         text = ''.join(emoji_to_message.get(emoji, '') for emoji in new_reactions)
         if not text.strip():
             return
