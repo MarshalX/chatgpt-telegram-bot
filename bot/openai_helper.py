@@ -27,7 +27,6 @@ if TYPE_CHECKING:
 GPT_4_MODELS = ('gpt-4', 'gpt-4-0314', 'gpt-4-0613', 'gpt-4-turbo-preview')
 GPT_4_32K_MODELS = ('gpt-4-32k', 'gpt-4-32k-0314', 'gpt-4-32k-0613')
 GPT_4_VISION_MODELS = (
-    'gpt-4-vision-preview',
     'gpt-4o',
     'gpt-4o-mini',
     'gpt-4.1',
@@ -90,13 +89,8 @@ def are_functions_available(model: str) -> bool:
     """
     Whether the given model supports functions
     """
-    # Deprecated models
-    if model in ('gpt-3.5-turbo-0301', 'gpt-4-0314', 'gpt-4-32k-0314'):
-        return False
     # Stable models will be updated to support functions on June 27, 2023
     if model in (
-        'gpt-3.5-turbo',
-        'gpt-3.5-turbo-1106',
         'gpt-4',
         'gpt-4-32k',
         'gpt-4-1106-preview',
@@ -104,11 +98,6 @@ def are_functions_available(model: str) -> bool:
         'gpt-4-turbo-preview',
     ):
         return datetime.date.today() > datetime.date(2023, 6, 27)
-    # Models gpt-3.5-turbo-0613 and gpt-3.5-turbo-16k-0613 will be deprecated on June 13, 2024
-    if model in ('gpt-3.5-turbo-0613', 'gpt-3.5-turbo-16k-0613'):
-        return datetime.date.today() < datetime.date(2024, 6, 13)
-    if model == 'gpt-4-vision-preview':
-        return False
     if model in GPT_SEARCH_MODELS:
         return False
     return True

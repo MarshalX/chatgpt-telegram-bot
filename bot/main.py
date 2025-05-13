@@ -7,7 +7,7 @@ from plugin_manager import PluginManager
 from telegram_bot import ChatGPTTelegramBot
 
 
-def read_prompt_from_file(file_path_env_var, default_path, fallback_env_var, default_value):
+def read_prompt_from_file(file_path_env_var, default_path, fallback_env_var, default_value) -> str:
     """
     Read prompt from a file, with fallback to environment variable.
     Args:
@@ -18,15 +18,12 @@ def read_prompt_from_file(file_path_env_var, default_path, fallback_env_var, def
     Returns:
         The prompt text
     """
-    # Get file path from env var or use default
     file_path = os.environ.get(file_path_env_var, default_path)
-
-    # Try to read from file first
     if file_path and os.path.isfile(file_path):
         try:
             with open(file_path, 'r', encoding='utf-8') as file:
                 content = file.read().strip()
-                if content:  # Ensure content is not empty
+                if content:
                     logging.info(f'Read prompt from file: {file_path}')
                     return content
         except Exception as e:
@@ -37,8 +34,7 @@ def read_prompt_from_file(file_path_env_var, default_path, fallback_env_var, def
     return env_value
 
 
-def main():
-    # Read .env file
+def main() -> None:
     load_dotenv()
 
     # Setup logging
@@ -51,7 +47,7 @@ def main():
 
     # Check if the required environment variables are set
     required_values = ['TELEGRAM_BOT_TOKEN', 'OPENAI_API_KEY']
-    missing_values = [value for value in required_values if os.environ.get(value) is None]
+    missing_values = [value for value in required_values if not os.environ.get(value)]
     if len(missing_values) > 0:
         logging.error(f'The following environment values are missing in your .env: {", ".join(missing_values)}')
         exit(1)
@@ -65,11 +61,6 @@ def main():
     assistant_prompt = read_prompt_from_file(
         'ASSISTANT_PROMPT_FILE', 'prompts/assistant_prompt.txt', 'ASSISTANT_PROMPT', 'You are a helpful assistant.'
     )
-
-    vision_prompt = read_prompt_from_file(
-        'VISION_PROMPT_FILE', 'prompts/vision_prompt.txt', 'VISION_PROMPT', 'What is in this image'
-    )
-
     whisper_prompt = read_prompt_from_file('WHISPER_PROMPT_FILE', 'prompts/whisper_prompt.txt', 'WHISPER_PROMPT', '')
 
     openai_config = {
@@ -96,11 +87,7 @@ def main():
         'show_plugins_used': os.environ.get('SHOW_PLUGINS_USED', 'false').lower() == 'true',
         'whisper_prompt': whisper_prompt,
         'vision_model': os.environ.get('VISION_MODEL', 'gpt-4.1-mini'),
-        'enable_vision_follow_up_questions': os.environ.get('ENABLE_VISION_FOLLOW_UP_QUESTIONS', 'true').lower()
-        == 'true',
-        'vision_prompt': vision_prompt,
         'vision_detail': os.environ.get('VISION_DETAIL', 'auto'),
-        'vision_max_output_tokens': int(os.environ.get('VISION_MAX_OUTPUT_TOKENS', '1024')),
         'tts_model': os.environ.get('TTS_MODEL', 'tts-1'),
         'tts_voice': os.environ.get('TTS_VOICE', 'nova'),
         'allowed_chat_ids_to_track': set(os.environ.get('ALLOWED_CHAT_IDS_TO_TRACK', '').split(',')),
@@ -114,16 +101,6 @@ def main():
             'Please set ENABLE_FUNCTIONS to false or use a model that supports it.'
         )
         exit(1)
-    if os.environ.get('MONTHLY_USER_BUDGETS') is not None:
-        logging.warning(
-            'The environment variable MONTHLY_USER_BUDGETS is deprecated. '
-            'Please use USER_BUDGETS with BUDGET_PERIOD instead.'
-        )
-    if os.environ.get('MONTHLY_GUEST_BUDGET') is not None:
-        logging.warning(
-            'The environment variable MONTHLY_GUEST_BUDGET is deprecated. '
-            'Please use GUEST_BUDGET with BUDGET_PERIOD instead.'
-        )
 
     telegram_config = {
         'token': os.environ['TELEGRAM_BOT_TOKEN'],
