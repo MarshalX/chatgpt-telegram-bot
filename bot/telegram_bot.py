@@ -251,7 +251,7 @@ class ChatGPTTelegramBot:
         self.image_quality_cache = {}
         self.image_to_edit_cache = {}  # Cache for storing image to edit data
         self.replies_tracker = {}
-        self.bot_messages_ids = set()
+        self.bot_message_ids = set()
         self.pending_quality_confirmations = {}  # Store pending confirmations
 
     def get_thread_id(self, update: Update) -> str:
@@ -293,7 +293,7 @@ class ChatGPTTelegramBot:
 
     def save_reply(self, msg: Message, update: Update):
         self.bot_message_ids.add((msg.chat.id, msg.message_id))
-        
+
         if is_private_chat(update):
             return
 
