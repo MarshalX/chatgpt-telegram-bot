@@ -47,6 +47,7 @@ from usage_tracker import UsageTracker
 from utils import (
     add_chat_request_to_usage_tracker,
     edit_message_with_retry,
+    encode_image,
     error_handler,
     get_forum_thread_id,
     get_remaining_budget,
@@ -1118,8 +1119,8 @@ class ChatGPTTelegramBot:
                 self.usage[user_id] = UsageTracker(user_id, update.message.from_user.name)
 
             if self.config['stream']:
-                stream_response = self.openai.interpret_image_stream(
-                    chat_id=ai_context_id, fileobj=temp_file_png, prompt=prompt, user_id=str(user_id)
+                stream_response = self.openai.get_chat_response_stream(
+                    chat_id=ai_context_id, image=encode_image(temp_file_png), query=prompt, user_id=str(user_id)
                 )
                 i = 0
                 prev = ''
@@ -1262,8 +1263,8 @@ class ChatGPTTelegramBot:
 
             else:
                 try:
-                    interpretation, total_tokens = await self.openai.interpret_image(
-                        ai_context_id, temp_file_png, prompt=prompt, user_id=str(user_id)
+                    interpretation, total_tokens = await self.openai.get_chat_response(
+                        ai_context_id, prompt, image=encode_image(temp_file_png), user_id=str(user_id)
                     )
 
                     try:

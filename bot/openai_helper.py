@@ -7,33 +7,23 @@ import io
 import json
 import logging
 import os
-from typing import TYPE_CHECKING, Optional, TypedDict, Union
+from typing import TYPE_CHECKING, List, Optional, TypedDict, Union
 
 import httpx
 import openai
-import tiktoken
 from openai._utils import async_maybe_transform
 from openai.types import CompletionUsage
 from openai.types.chat import ChatCompletionMessageParam
 from openai.types.images_response import Usage
-from PIL import Image
 from plugin_manager import PluginManager
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
-from utils import decode_image, encode_image, is_direct_result
+from utils import is_direct_result
 
 if TYPE_CHECKING:
     from openai.types.chat import ChatCompletionMessageToolCall
     from openai.types.chat.chat_completion_chunk import ChoiceDeltaToolCall
 
 # Models can be found here: https://platform.openai.com/docs/models/overview
-# Models gpt-3.5-turbo-0613 and gpt-3.5-turbo-16k-0613 will be deprecated on June 13, 2024
-GPT_3_MODELS = ('gpt-3.5-turbo', 'gpt-3.5-turbo-0301', 'gpt-3.5-turbo-0613')
-GPT_3_16K_MODELS = (
-    'gpt-3.5-turbo-16k',
-    'gpt-3.5-turbo-16k-0613',
-    'gpt-3.5-turbo-1106',
-    'gpt-3.5-turbo-0125',
-)
 GPT_4_MODELS = ('gpt-4', 'gpt-4-0314', 'gpt-4-0613', 'gpt-4-turbo-preview')
 GPT_4_32K_MODELS = ('gpt-4-32k', 'gpt-4-32k-0314', 'gpt-4-32k-0613')
 GPT_4_VISION_MODELS = (
@@ -73,14 +63,7 @@ GPT_SEARCH_MODELS = (
     'gpt-4o-mini-search-preview',
 )
 GPT_ALL_MODELS = (
-    GPT_3_MODELS
-    + GPT_3_16K_MODELS
-    + GPT_4_MODELS
-    + GPT_4_32K_MODELS
-    + GPT_4_VISION_MODELS
-    + GPT_4_128K_MODELS
-    + GPT_4O_MODELS
-    + GPT_41_MODELS
+    GPT_4_MODELS + GPT_4_32K_MODELS + GPT_4_VISION_MODELS + GPT_4_128K_MODELS + GPT_4O_MODELS + GPT_41_MODELS
 )
 
 
@@ -91,12 +74,8 @@ def default_max_output_tokens(model: str) -> int:
     :return: The default number of max tokens
     """
     base = 1024
-    if model in GPT_3_MODELS:
-        return base
-    elif model in GPT_4_MODELS:
+    if model in GPT_4_MODELS:
         return base * 2
-    elif model in GPT_3_16K_MODELS:
-        return base * 4
     elif model in GPT_4_32K_MODELS:
         return base * 8
     elif model in GPT_4_128K_MODELS:
@@ -236,10 +215,11 @@ class OpenAIHelper:
 
         self.config = config
         self.plugin_manager = plugin_manager
-        self.conversations: dict[int:list] = {}  # {chat_id: history}
-        self.conversations_costs: dict[int:float] = {}  # {chat_id: cost}
-        self.conversations_vision: dict[int:bool] = {}  # {chat_id: is_vision}
-        self.last_updated: dict[int:datetime] = {}  # {chat_id: last_update_timestamp}
+
+        self.conversations: dict[str:list] = {}  # {chat_id: history}
+        self.conversations_costs: dict[str:float] = {}  # {chat_id: cost}
+        self.conversations_tokens: dict[str:int] = {}  # {chat_id: tokens}
+        self.last_updated: dict[str:datetime] = {}  # {chat_id: last_update_timestamp}
         self.conversation_locks: dict[str : asyncio.Lock] = {}  # {chat_id: lock}
 
     class MessageDb(TypedDict, total=False):
@@ -287,7 +267,7 @@ class OpenAIHelper:
 
         logging.debug(f'Added message to chat ID {chat_id} history')
 
-    async def get_conversation_stats(self, chat_id: int) -> tuple[int, int]:
+    async def get_conversation_stats(self, chat_id: str) -> tuple[int, int]:
         """
         Gets the number of messages and tokens used in the conversation.
         :param chat_id: The chat ID
@@ -295,19 +275,22 @@ class OpenAIHelper:
         """
         if chat_id not in self.conversations:
             await self.reset_chat_history(chat_id)
-        return len(self.conversations[chat_id]), self.__count_tokens(self.conversations[chat_id])
+        return len(self.conversations[chat_id]), self.get_tokens(chat_id)
 
-    async def get_chat_response(self, chat_id: str, query: str, user_id: Optional[str] = None) -> tuple[str, int]:
+    async def get_chat_response(
+        self, chat_id: str, query: str, image: Optional[str] = None, user_id: Optional[str] = None
+    ) -> tuple[str, int]:
         """
         Gets a full response from the GPT model.
         :param chat_id: The chat ID
         :param query: The query to send to the model
+        :param image: The image to send to the model
         :param user_id: The user ID for tracking
         :return: The answer from the model and the number of tokens used
         """
         plugins_used = ()
-        response = await self.__common_get_chat_response(chat_id, query, user_id=user_id)
-        if self.config['enable_functions'] and not self.conversations_vision[chat_id]:
+        response = await self.__common_get_chat_response(chat_id, query, image=image, user_id=user_id)
+        if self.config['enable_functions']:
             response, plugins_used = await self.__handle_function_call(chat_id, response, user_id=user_id)
             if is_direct_result(response):
                 return response, 0
@@ -351,6 +334,7 @@ class OpenAIHelper:
         if self.config['show_usage']:
             cost = get_model_cost(self.config['model'], response.usage)
             self.add_cost(chat_id, cost)
+            self.set_tokens(chat_id, response.usage.total_tokens)
 
             price = get_formatted_price(self.get_cost(chat_id))
             answer += f'\n\n---\nID: {chat_id[-2:]} {price}'
@@ -362,16 +346,20 @@ class OpenAIHelper:
 
         return answer, response.usage.total_tokens
 
-    async def get_chat_response_stream(self, chat_id: str, query: str, user_id: Optional[str] = None):
+    async def get_chat_response_stream(
+        self, chat_id: str, query: str, image: Optional[str] = None, user_id: Optional[str] = None
+    ):
         """
         Stream response from the GPT model.
         :param chat_id: The chat ID
         :param query: The query to send to the model
+        :param image: The image to send to the model
+        :param user_id: The user ID for tracking
         :return: The answer from the model and the number of tokens used, or 'not_finished'
         """
         plugins_used = ()
-        response = await self.__common_get_chat_response(chat_id, query, stream=True, user_id=user_id)
-        if self.config['enable_functions'] and not self.conversations_vision[chat_id]:
+        response = await self.__common_get_chat_response(chat_id, query, stream=True, image=image, user_id=user_id)
+        if self.config['enable_functions']:
             response, plugins_used = await self.__handle_function_call(chat_id, response, stream=True, user_id=user_id)
             if is_direct_result(response):
                 yield response, '0'
@@ -398,6 +386,7 @@ class OpenAIHelper:
         if self.config['show_usage']:
             cost = get_model_cost(self.config['model'], usage)
             self.add_cost(chat_id, cost)
+            self.set_tokens(chat_id, usage.total_tokens)
 
             price = get_formatted_price(self.get_cost(chat_id))
             answer += f'\n\n---\nID: {chat_id[-2:]} {price}'
@@ -425,7 +414,9 @@ class OpenAIHelper:
         wait=wait_exponential_jitter(),
         stop=stop_after_attempt(5),
     )
-    async def __common_get_chat_response(self, chat_id: str, query: str, stream=False, user_id: Optional[str] = None):
+    async def __common_get_chat_response(
+        self, chat_id: str, query: str, stream=False, image: Optional[str] = None, user_id: Optional[str] = None
+    ):
         """
         Request a response from the GPT model.
         :param chat_id: The chat ID
@@ -434,17 +425,36 @@ class OpenAIHelper:
         :return: The answer from the model and the number of tokens used
         """
         bot_language = self.config['bot_language']
+        model = self.config['vision_model'] if image else self.config['model']
+
         try:
             if chat_id not in self.conversations or self.__max_age_reached(chat_id):
                 await self.reset_chat_history(chat_id)
 
             self.last_updated[chat_id] = datetime.datetime.now()
 
-            await self.__add_to_history(chat_id, role='user', content=query)
+            async def _add_to_history() -> None:
+                if query:
+                    await self.__add_to_history(chat_id, role='user', content=query)
+
+                if image:
+                    await self.__add_to_history(
+                        chat_id,
+                        role='user',
+                        content=[
+                            {
+                                'type': 'image_url',
+                                'image_url': {'url': image, 'detail': self.config['vision_detail']},
+                            },
+                        ],
+                    )
+
+            await _add_to_history()
 
             # Summarize the chat history if it's too long to avoid excessive token usage
-            token_count = self.__count_tokens(self.conversations[chat_id])
-            exceeded_max_tokens = token_count + self.config['max_output_tokens'] > self.__max_model_tokens()
+            exceeded_max_tokens = (
+                self.get_tokens(chat_id) + self.config['max_output_tokens'] > self.__max_model_tokens()
+            )
             exceeded_max_history_size = len(self.conversations[chat_id]) > self.config['max_history_size']
 
             if exceeded_max_tokens or exceeded_max_history_size:
@@ -454,7 +464,7 @@ class OpenAIHelper:
                     logging.debug(f'Summary: {summary}')
                     await self.reset_chat_history(chat_id, self.conversations[chat_id][0]['content'])
                     await self.__add_to_history(chat_id, role='assistant', content=summary)
-                    await self.__add_to_history(chat_id, role='user', content=query)
+                    await _add_to_history()
                 except Exception as e:
                     logging.warning(f'Error while summarising chat history: {str(e)}. Popping elements instead...')
                     # FIXME update in DB
@@ -463,9 +473,7 @@ class OpenAIHelper:
                     ]
 
             common_args = {
-                'model': self.config['model']
-                if not self.conversations_vision[chat_id]
-                else self.config['vision_model'],
+                'model': model,
                 'messages': self.conversations[chat_id],
                 'max_tokens': self.config['max_output_tokens'],
                 'stream': stream,
@@ -490,7 +498,7 @@ class OpenAIHelper:
                     'search_context_size': self.config['web_search_context_size'],
                 }
 
-            if self.config['enable_functions'] and not self.conversations_vision[chat_id]:
+            if self.config['enable_functions']:
                 functions = self.plugin_manager.get_functions_specs()
                 if len(functions) > 0:
                     common_args['tools'] = functions
@@ -581,6 +589,7 @@ class OpenAIHelper:
             # otherwise it will be calculated outside in the response handler (final or the only one call)
             cost = get_model_cost(self.config['model'], usage)
             self.add_cost(chat_id, cost)
+            self.set_tokens(chat_id, usage.total_tokens)
 
         price = get_formatted_price(cost)
         logging.info(f'[FUNC CALL][{times}] "{function_name}" costed {price} returned {function_response_json[:100]}')
@@ -725,221 +734,21 @@ class OpenAIHelper:
             logging.exception(e)
             raise Exception(f"⚠️ _{localized_text('error', self.config['bot_language'])}._ ⚠️\n{str(e)}") from e
 
-    @retry(
-        reraise=True,
-        retry=retry_if_exception_type(BaseException),
-        wait=wait_exponential_jitter(),
-        stop=stop_after_attempt(5),
-    )
-    async def __common_get_chat_response_vision(
-        self, chat_id: int, content: list, stream=False, user_id: Optional[str] = None
-    ):
-        """
-        Request a response from the GPT model.
-        :param chat_id: The chat ID
-        :param query: The query to send to the model
-        :return: The answer from the model and the number of tokens used
-        """
-        bot_language = self.config['bot_language']
-        try:
-            if chat_id not in self.conversations or self.__max_age_reached(chat_id):
-                await self.reset_chat_history(chat_id)
-
-            self.last_updated[chat_id] = datetime.datetime.now()
-
-            if self.config['enable_vision_follow_up_questions']:
-                self.conversations_vision[chat_id] = True
-                await self.__add_to_history(chat_id, role='user', content=content)
-            else:
-                query = None
-
-                for message in content:
-                    if message['type'] == 'text':
-                        query = message['text']
-                        break
-
-                if query:
-                    await self.__add_to_history(chat_id, role='user', content=query)
-
-            # Summarize the chat history if it's too long to avoid excessive token usage
-            token_count = self.__count_tokens(self.conversations[chat_id])
-            exceeded_max_tokens = token_count + self.config['max_output_tokens'] > self.__max_model_tokens()
-            exceeded_max_history_size = len(self.conversations[chat_id]) > self.config['max_history_size']
-
-            if exceeded_max_tokens or exceeded_max_history_size:
-                logging.info(f'Chat history for chat ID {chat_id} is too long. Summarising...')
-                try:
-                    last = self.conversations[chat_id][-1]
-                    summary = await self.__summarise(self.conversations[chat_id][:-1], user_id)
-                    logging.debug(f'Summary: {summary}')
-                    await self.reset_chat_history(chat_id, self.conversations[chat_id][0]['content'])
-                    await self.__add_to_history(chat_id, role='assistant', content=summary)
-                    await self.__add_to_history(chat_id, role=last['role'], content=last['content'])
-                except Exception as e:
-                    logging.warning(f'Error while summarising chat history: {str(e)}. Popping elements instead...')
-                    self.conversations[chat_id] = [self.conversations[chat_id][0]] + self.conversations[chat_id][
-                        -self.config['max_history_size'] - 1 :
-                    ]
-
-            message = {'role': 'user', 'content': content}
-
-            common_args = {
-                'model': self.config['vision_model'],
-                'messages': self.conversations[chat_id][:-1] + [message],
-                'temperature': self.config['temperature'],
-                'n': 1,  # several choices is not implemented yet
-                'max_tokens': self.config['vision_max_output_tokens'],
-                'presence_penalty': self.config['presence_penalty'],
-                'frequency_penalty': self.config['frequency_penalty'],
-                'stream': stream,
-                'user': user_id,
-            }
-
-            if stream:
-                common_args['stream_options'] = {'include_usage': True}
-
-            # vision model does not yet support functions
-
-            # if self.config['enable_functions']:
-            #     functions = self.plugin_manager.get_functions_specs()
-            #     if len(functions) > 0:
-            #         common_args['functions'] = self.plugin_manager.get_functions_specs()
-            #         common_args['function_call'] = 'auto'
-
-            return await self.client.chat.completions.create(**common_args)
-
-        except openai.RateLimitError as e:
-            raise e
-
-        except openai.BadRequestError as e:
-            raise Exception(f"⚠️ _{localized_text('openai_invalid', bot_language)}._ ⚠️\n{str(e)}") from e
-
-        except Exception as e:
-            raise Exception(f"⚠️ _{localized_text('error', bot_language)}._ ⚠️\n{str(e)}") from e
-
-    async def interpret_image(self, chat_id, fileobj, prompt=None, user_id: Optional[str] = None):
-        """
-        Interprets a given PNG image file using the Vision model.
-        """
-        image = encode_image(fileobj)
-        prompt = self.config['vision_prompt'] if prompt is None else prompt
-
-        content = [
-            {'type': 'text', 'text': prompt},
-            {
-                'type': 'image_url',
-                'image_url': {'url': image, 'detail': self.config['vision_detail']},
-            },
-        ]
-
-        response = await self.__common_get_chat_response_vision(chat_id, content, user_id=user_id)
-
-        # functions are not available for this model
-
-        # if self.config['enable_functions']:
-        #     response, plugins_used = await self.__handle_function_call(chat_id, response)
-        #     if is_direct_result(response):
-        #         return response, '0'
-
-        answer = ''
-
-        if len(response.choices) > 1 and self.config['n_choices'] > 1:
-            for index, choice in enumerate(response.choices):
-                content = choice.message.content.strip()
-                if index == 0:
-                    await self.__add_to_history(chat_id, role='assistant', content=content)
-                answer += f'{index + 1}\u20e3\n'
-                answer += content
-                answer += '\n\n'
-        else:
-            answer = response.choices[0].message.content.strip()
-            await self.__add_to_history(chat_id, role='assistant', content=answer)
-
-        bot_language = self.config['bot_language']
-        # Plugins are not enabled either
-        # show_plugins_used = len(plugins_used) > 0 and self.config['show_plugins_used']
-        # plugin_names = tuple(self.plugin_manager.get_plugin_source_name(plugin) for plugin in plugins_used)
-        if self.config['show_usage']:
-            answer += (
-                "\n\n---\n"
-                f"ID: {chat_id[-2:]} 💰 {str(response.usage.total_tokens)} {localized_text('stats_tokens', bot_language)}"
-                f" ({str(response.usage.prompt_tokens)} {localized_text('prompt', bot_language)},"
-                f" {str(response.usage.completion_tokens)} {localized_text('completion', bot_language)})"
-            )
-            # if show_plugins_used:
-            #     answer += f"\n🔌 {', '.join(plugin_names)}"
-        # elif show_plugins_used:
-        #     answer += f"\n\n---\n🔌 {', '.join(plugin_names)}"
-
-        return answer, response.usage.total_tokens
-
-    async def interpret_image_stream(self, chat_id, fileobj, prompt=None, user_id: Optional[str] = None):
-        """
-        Interprets a given PNG image file using the Vision model.
-        """
-        image = encode_image(fileobj)
-        prompt = self.config['vision_prompt'] if prompt is None else prompt
-
-        content = [
-            {'type': 'text', 'text': prompt},
-            {
-                'type': 'image_url',
-                'image_url': {'url': image, 'detail': self.config['vision_detail']},
-            },
-        ]
-
-        response = await self.__common_get_chat_response_vision(chat_id, content, stream=True, user_id=user_id)
-
-        # if self.config['enable_functions']:
-        #     response, plugins_used = await self.__handle_function_call(chat_id, response, stream=True)
-        #     if is_direct_result(response):
-        #         yield response, '0'
-        #         return
-
-        answer = ''
-        last_chunk = None
-        async for chunk in response:
-            last_chunk = chunk
-            if len(chunk.choices) == 0:
-                continue
-            delta = chunk.choices[0].delta
-            if delta.content:
-                answer += delta.content
-                yield answer, 'not_finished'
-
-        usage = last_chunk.usage
-        answer = answer.strip()
-        await self.__add_to_history(chat_id, role='assistant', content=answer)
-        # tokens_used = str(self.__count_tokens(self.conversations[chat_id]))
-        tokens_used = usage.total_tokens
-
-        price = get_formatted_price(get_model_cost(self.config['model'], usage))
-
-        # show_plugins_used = len(plugins_used) > 0 and self.config['show_plugins_used']
-        # plugin_names = tuple(self.plugin_manager.get_plugin_source_name(plugin) for plugin in plugins_used)
-        if self.config['show_usage']:
-            answer += f'\n\n---\nID: {chat_id[-2:]} {price}'
-        #     if show_plugins_used:
-        #         answer += f"\n🔌 {', '.join(plugin_names)}"
-        # elif show_plugins_used:
-        #     answer += f"\n\n---\n🔌 {', '.join(plugin_names)}"
-
-        yield answer, tokens_used
-
-    async def reset_chat_history(self, chat_id, content=''):
+    async def reset_chat_history(self, chat_id: str, content: Optional[str] = None):
         """
         Resets the conversation history.
         """
-        if content == '':
+        if not content:
             content = self.config['assistant_prompt']
+
         self.conversations[chat_id] = [{'role': 'system', 'content': content}]
-        self.conversations_vision[chat_id] = False
         self.conversations_costs[chat_id] = 0
+        self.set_tokens(chat_id, 0)
 
         await self.init_conv_in_db(chat_id)
         await self.add_conv_in_db(chat_id, 'system', content)
 
-    def __max_age_reached(self, chat_id) -> bool:
+    def __max_age_reached(self, chat_id: str) -> bool:
         """
         Checks if the maximum conversation age has been reached.
         :param chat_id: The chat ID
@@ -947,6 +756,7 @@ class OpenAIHelper:
         """
         if chat_id not in self.last_updated:
             return False
+
         last_updated = self.last_updated[chat_id]
         now = datetime.datetime.now()
         max_age_minutes = self.config['max_conversation_age_minutes']
@@ -982,7 +792,7 @@ class OpenAIHelper:
         self.conversations[chat_id].append({'role': 'tool', 'tool_call_id': tool_call_id, 'content': result})
         await self.add_conv_in_db(chat_id, 'tool', result, tool_name)
 
-    async def __add_to_history(self, chat_id, role, content):
+    async def __add_to_history(self, chat_id: str, role: str, content: Union[str, List[dict]]):
         """
         Adds a message to the conversation history.
         :param chat_id: The chat ID
@@ -994,22 +804,35 @@ class OpenAIHelper:
         data = await async_maybe_transform({'message': {'role': role, 'content': content}}, self.MessageDb)
         msg = data['message']
 
-        if not isinstance(msg['content'], str):
+        if isinstance(msg['content'], list):
             msg['content'] = json.dumps(msg['content'])
 
+        # self.conversations[chat_id].append({'role': msg['role'], 'content': msg['content']})
         await self.add_conv_in_db(chat_id, msg['role'], msg['content'])
 
-    def add_cost(self, chat_id, cost):
+    def add_cost(self, chat_id: str, cost: float):
         """
         Adds the cost to the conversation.
         """
-        self.conversations_costs[chat_id] = cost + self.conversations_costs.get(chat_id, 0)
+        self.conversations_costs[chat_id] = cost + self.get_cost(chat_id)
 
-    def get_cost(self, chat_id):
+    def get_cost(self, chat_id: str) -> float:
         """
         Gets the cost of the conversation.
         """
         return self.conversations_costs.get(chat_id, 0)
+
+    def set_tokens(self, chat_id, tokens: int):
+        """
+        Set the tokens of the conversation.
+        """
+        self.conversations_tokens[chat_id] = tokens
+
+    def get_tokens(self, chat_id: str) -> int:
+        """
+        Gets the tokens of the conversation.
+        """
+        return self.conversations_tokens.get(chat_id, 0)
 
     async def __summarise(self, conversation, user_id: Optional[str] = None) -> str:
         """
@@ -1031,10 +854,6 @@ class OpenAIHelper:
 
     def __max_model_tokens(self):
         base = 4096
-        if self.config['model'] in GPT_3_MODELS:
-            return base
-        if self.config['model'] in GPT_3_16K_MODELS:
-            return base * 4
         if self.config['model'] in GPT_4_MODELS:
             return base * 2
         if self.config['model'] in GPT_4_32K_MODELS:
@@ -1046,83 +865,3 @@ class OpenAIHelper:
         if self.config['model'] in GPT_41_MODELS:
             return base * 240  # 1M
         raise NotImplementedError(f"Max tokens for model {self.config['model']} is not implemented yet.")
-
-    # https://github.com/openai/openai-cookbook/blob/main/examples/How_to_count_tokens_with_tiktoken.ipynb
-    def __count_tokens(self, messages) -> int:
-        """
-        Counts the number of tokens required to send the given messages.
-        :param messages: the messages to send
-        :return: the number of tokens required
-        """
-        model = self.config['model']
-        try:
-            if model.startswith('gpt-4.1'):
-                # tiktoken is not updated to support 4.1 yet
-                # remove when tiktoken will support it
-                encoding = tiktoken.get_encoding('o200k_base')
-            else:
-                encoding = tiktoken.encoding_for_model(model)
-        except KeyError:
-            encoding = tiktoken.get_encoding('gpt-3.5-turbo')
-
-        if model in GPT_3_MODELS + GPT_3_16K_MODELS:
-            tokens_per_message = 4  # every message follows <|start|>{role/name}\n{content}<|end|>\n
-            tokens_per_name = -1  # if there's a name, the role is omitted
-        elif model in GPT_4_MODELS + GPT_4_32K_MODELS + GPT_4_128K_MODELS + GPT_4O_MODELS + GPT_41_MODELS:
-            tokens_per_message = 3
-            tokens_per_name = 1
-        else:
-            raise NotImplementedError(f"""num_tokens_from_messages() is not implemented for model {model}.""")
-        num_tokens = 0
-        for message in messages:
-            num_tokens += tokens_per_message
-            for key, value in message.items():
-                if key == 'content':
-                    if isinstance(value, str):
-                        num_tokens += len(encoding.encode(value))
-                    else:
-                        for message1 in value:
-                            if message1['type'] == 'image_url':
-                                image = decode_image(message1['image_url']['url'])
-                                num_tokens += self.__count_tokens_vision(image)
-                            else:
-                                num_tokens += len(encoding.encode(message1['text']))
-                else:
-                    num_tokens += len(encoding.encode(json.dumps(value, default=str)))
-                    if key == 'name':
-                        num_tokens += tokens_per_name
-        num_tokens += 3  # every reply is primed with <|start|>assistant<|message|>
-        return num_tokens
-
-    # no longer needed
-
-    def __count_tokens_vision(self, image_bytes: bytes) -> int:
-        """
-        Counts the number of tokens for interpreting an image.
-        :param image_bytes: image to interpret
-        :return: the number of tokens required
-        """
-        image_file = io.BytesIO(image_bytes)
-        image = Image.open(image_file)
-        model = self.config['vision_model']
-        if model not in GPT_4_VISION_MODELS:
-            raise NotImplementedError(f"""count_tokens_vision() is not implemented for model {model}.""")
-
-        w, h = image.size
-        if w > h:
-            w, h = h, w
-        # this computation follows https://platform.openai.com/docs/guides/vision and https://openai.com/pricing#gpt-4-turbo
-        base_tokens = 85
-        detail = self.config['vision_detail']
-        if detail == 'low':
-            return base_tokens
-        elif detail == 'high' or detail == 'auto':  # assuming worst cost for auto
-            f = max(w / 768, h / 2048)
-            if f > 1:
-                w, h = int(w / f), int(h / f)
-            tw, th = (w + 511) // 512, (h + 511) // 512
-            tiles = tw * th
-            num_tokens = base_tokens + tiles * 170
-            return num_tokens
-        else:
-            raise NotImplementedError(f"""unknown parameter detail={detail} for model {model}.""")
