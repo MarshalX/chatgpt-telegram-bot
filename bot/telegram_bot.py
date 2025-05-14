@@ -966,7 +966,7 @@ class ChatGPTTelegramBot:
 
                 if self.config['voice_reply_transcript'] and not response_to_transcription:
                     # Split into chunks of 4096 characters (Telegram's message limit)
-                    transcript_output = f"_{localized_text('transcript', bot_language)}:_\n\"{transcript}\""
+                    transcript_output = f"<i>{localized_text('transcript', bot_language)}:</i>\n\"{transcript}\""
                     chunks = split_into_chunks(transcript_output)
 
                     for index, transcript_chunk in enumerate(chunks):
@@ -989,8 +989,8 @@ class ChatGPTTelegramBot:
 
                     # Split into chunks of 4096 characters (Telegram's message limit)
                     transcript_output = (
-                        f"_{localized_text('transcript', bot_language)}:_\n\"{transcript}\"\n\n"
-                        f"_{localized_text('answer', bot_language)}:_\n{response}"
+                        f"<i>{localized_text('transcript', bot_language)}:</i>\n\"{transcript}\"\n\n"
+                        f"<i>{localized_text('answer', bot_language)}:</i>\n{response}"
                     )
                     chunks = split_into_chunks(transcript_output)
 
@@ -1759,7 +1759,7 @@ class ChatGPTTelegramBot:
             loading_tr = localized_text('loading', bot_language)
             answer_tr = localized_text('answer', bot_language)
 
-            placeholder_text = f'{message_content}\n\n_{answer_tr}:_\n{loading_tr}'
+            placeholder_text = f'{message_content}\n\n<i>{answer_tr}:</i>\n{loading_tr}'
 
             # Add a placeholder button
             reply_markup = InlineKeyboardMarkup(
@@ -1829,7 +1829,7 @@ class ChatGPTTelegramBot:
                             context,
                             chat_id=None,
                             message_id=inline_message_id,
-                            text=f'{query}\n\n_{answer_tr}:_\n{unavailable_message}',
+                            text=f'{query}\n\n<i>{answer_tr}:</i>\n{unavailable_message}',
                             is_inline=True,
                         )
                         return
@@ -1877,8 +1877,7 @@ class ChatGPTTelegramBot:
                                 continue
 
                             use_markdown = tokens != 'not_finished'
-                            divider = '_' if use_markdown else ''
-                            text = f'{query}\n\n{divider}{answer_tr}:{divider}\n{content}'
+                            text = f'{query}\n\n<i>{answer_tr}:</i>\n{content}'
 
                             # We only want to send the first 4096 characters. No chunking allowed in inline mode.
                             text = text[:4096]
@@ -1918,7 +1917,7 @@ class ChatGPTTelegramBot:
                 if can_send:
                     await context.bot.edit_message_text(
                         inline_message_id=inline_message_id,
-                        text=f'{query}\n\n_{answer_tr}:_\n{loading_tr}',
+                        text=f'{query}\n\n<i>{answer_tr}:</i>\n{loading_tr}',
                         parse_mode=constants.ParseMode.HTML,
                     )
 
@@ -1937,12 +1936,12 @@ class ChatGPTTelegramBot:
                             context,
                             chat_id=None,
                             message_id=inline_message_id,
-                            text=f'{query}\n\n_{answer_tr}:_\n{unavailable_message}',
+                            text=f'{query}\n\n<i>{answer_tr}:</i>\n{unavailable_message}',
                             is_inline=True,
                         )
                     return
 
-                text_content = f'{query}\n\n_{answer_tr}:_\n{response}'
+                text_content = f'{query}\n\n<i>{answer_tr}:</i>\n{response}'
                 # We only want to send the first 4096 characters. No chunking allowed in inline mode.
                 text_content = text_content[:4096]
 
@@ -1980,7 +1979,7 @@ class ChatGPTTelegramBot:
                 context,
                 chat_id=None,
                 message_id=inline_message_id,
-                text=f'{query}\n\n_{answer_tr}:_\n{localized_answer} {str(e)}',
+                text=f'{query}\n\n<i>{answer_tr}:</i>\n{localized_answer} {str(e)}',
                 is_inline=True,
             )
 

@@ -500,10 +500,10 @@ class OpenAIHelper:
             raise e
 
         except openai.BadRequestError as e:
-            raise Exception(f"⚠️ _{localized_text('openai_invalid', bot_language)}._ ⚠️\n{str(e)}") from e
+            raise Exception(f"⚠️ <i>{localized_text('openai_invalid', bot_language)}.</i> ⚠️\n{str(e)}") from e
 
         except Exception as e:
-            raise Exception(f"⚠️ _{localized_text('error', bot_language)}._ ⚠️\n{str(e)}") from e
+            raise Exception(f"⚠️ <i>{localized_text('error', bot_language)}.</i> ⚠️\n{str(e)}") from e
 
     async def __handle_function_call(
         self, chat_id, response, stream=False, times=0, plugins_used=(), user_id: Optional[str] = None
@@ -670,7 +670,8 @@ class OpenAIHelper:
             if len(response.data) == 0:
                 logging.error(f'No response from GPT: {str(response)}')
                 raise Exception(
-                    f"⚠️ _{localized_text('error', bot_language)}._ " f"⚠️\n{localized_text('try_again', bot_language)}."
+                    f"⚠️ <i>{localized_text('error', bot_language)}.</i> "
+                    f"⚠️\n{localized_text('try_again', bot_language)}."
                 )
 
             image_base64 = response.data[0].b64_json
@@ -683,7 +684,7 @@ class OpenAIHelper:
 
             return image_bytes, self.config['image_size'], price
         except Exception as e:
-            raise Exception(f"⚠️ _{localized_text('error', bot_language)}._ ⚠️\n{str(e)}") from e
+            raise Exception(f"⚠️ <i>{localized_text('error', bot_language)}.</i> ⚠️\n{str(e)}") from e
 
     async def generate_speech(self, text: str) -> tuple[io.BytesIO, int]:
         """
@@ -705,7 +706,7 @@ class OpenAIHelper:
             temp_file.seek(0)
             return temp_file, len(text)
         except Exception as e:
-            raise Exception(f"⚠️ _{localized_text('error', bot_language)}._ ⚠️\n{str(e)}") from e
+            raise Exception(f"⚠️ <i>{localized_text('error', bot_language)}.</i> ⚠️\n{str(e)}") from e
 
     async def transcribe(self, filename):
         # FIXME do not use filename; use fileobj instead
@@ -721,7 +722,7 @@ class OpenAIHelper:
                 return result.text
         except Exception as e:
             logging.exception(e)
-            raise Exception(f"⚠️ _{localized_text('error', self.config['bot_language'])}._ ⚠️\n{str(e)}") from e
+            raise Exception(f"⚠️ <i>{localized_text('error', self.config['bot_language'])}.</i> ⚠️\n{str(e)}") from e
 
     async def reset_chat_history(self, chat_id: str, content: Optional[str] = None):
         """
