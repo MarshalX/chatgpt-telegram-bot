@@ -4,6 +4,7 @@ import asyncio
 import io
 import logging
 import os
+import tempfile
 import time
 from collections.abc import Sequence
 from datetime import datetime
@@ -16,9 +17,11 @@ from decorators import with_conversation_lock
 from openai_helper import OpenAIHelper, localized_text
 from PIL import Image
 from pydub import AudioSegment
+from pypdf import PdfReader
 from telegram import (
     BotCommand,
     BotCommandScopeAllGroupChats,
+    Document,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     InlineQueryResultArticle,
@@ -1360,47 +1363,47 @@ class ChatGPTTelegramBot:
             '😁': 'Glad to hear that!',
             '🤔': 'Let me think...',
             '🤯': 'Wow, that blew my mind!',
-            '😱': 'That’s shocking!',
+            '😱': "That's shocking!",
             '🤬': 'This is outrageous!',
-            '😢': 'I’m sorry to hear that.',
+            '😢': "I'm sorry to hear that.",
             '🎉': 'Congratulations!',
             '🤩': 'Wow, impressive!',
-            '🤮': 'That’s disgusting.',
-            '💩': 'That’s really bad.',
+            '🤮': "That's disgusting.",
+            '💩': "That's really bad.",
             '🙏': 'Please, go on.',
             '👌': 'I agree, perfect.',
             '🕊': 'Peace and calm.',
             '🤡': 'Is this a joke?',
-            '🥱': 'I’m bored...',
-            '🥴': 'I don’t quite understand.',
-            '😍': 'I’m thrilled!',
+            '🥱': "I'm bored...",
+            '🥴': "I don't quite understand.",
+            '😍': "I'm thrilled!",
             '🐳': 'Interesting, tell me more.',
             '❤️‍🔥': 'True passion!',
             '🌚': 'Hmm, mysterious.',
             '🌭': 'Odd choice, but okay.',
             '💯': 'Totally support that.',
-            '🤣': 'Haha, that’s funny!',
-            '⚡': 'That’s very energetic!',
+            '🤣': "Haha, that's funny!",
+            '⚡': "That's very energetic!",
             '🍌': 'Unexpected!',
             '🏆': 'Great achievement!',
-            '💔': 'That’s sad.',
+            '💔': "That's sad.",
             '🤨': 'That seems doubtful to me.',
             '😐': 'Neutral stance.',
             '🍓': 'I love it.',
             '🍾': 'Time to celebrate!',
             '💋': 'Sending love!',
-            '🖕': 'That’s rude!',
-            '😈': 'Alright, let’s play naughty.',
+            '🖕': "That's rude!",
+            '😈': "Alright, let's play naughty.",
             '😴': 'I need to rest.',
             '😭': 'Very touching.',
             '🤓': 'Interesting fact, thanks!',
             '👻': 'Was there a ghost here?',
-            '👨‍💻': 'Let’s code!',
-            '👀': 'I’m watching closely.',
+            '👨‍💻': "Let's code!",
+            '👀': "I'm watching closely.",
             '🎃': 'Happy Halloween!',
-            '🙈': 'I didn’t see that.',
+            '🙈': "I didn't see that.",
             '😇': 'Good idea!',
-            '😨': 'That’s scary.',
+            '😨': "That's scary.",
             '🤝': 'Agreed.',
             '✍': 'Noting it down.',
             '🤗': 'Hugs!',
@@ -1413,16 +1416,16 @@ class ChatGPTTelegramBot:
             '🗿': 'No emotions...',
             '🆒': 'Very cool!',
             '💘': 'In love!',
-            '🙉': 'I don’t want to hear that.',
+            '🙉': "I don't want to hear that.",
             '🦄': 'Something magical!',
             '😘': 'Kisses!',
             '💊': 'Need some help?',
-            '🙊': 'Won’t say a thing.',
+            '🙊': "Won't say a thing.",
             '😎': 'Cool and confident.',
             '👾': 'Exciting!',
-            '🤷‍♂️': 'Don’t know what to say.',
+            '🤷‍♂️': "Don't know what to say.",
             '🤷': 'No opinion yet.',
-            '🤷‍♀️': 'I’m not sure.',
+            '🤷‍♀️': "I'm not sure.",
             '😡': 'This annoys me.',
         }
 
@@ -1459,6 +1462,9 @@ class ChatGPTTelegramBot:
 
     @with_conversation_lock
     async def prompt(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await self._prompt_no_lock(update, context)
+
+    async def _prompt_no_lock(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """
         React to incoming messages and respond accordingly.
         """
@@ -1476,7 +1482,17 @@ class ChatGPTTelegramBot:
         self.last_message[chat_id] = prompt
 
         if update.message.reply_to_message and update.message.reply_to_message.effective_attachment:
-            return await self._vision_no_lock(update, context, update.message.reply_to_message)
+            attachment = update.message.reply_to_message.effective_attachment
+            if isinstance(attachment, Document) and attachment.mime_type == 'application/pdf':
+                with update._unfrozen() as editable_update:
+                    editable_update.message = update.message.reply_to_message
+                with update.message._unfrozen() as message:
+                    message.caption = prompt
+
+                return await self.handle_pdf(update, context)
+
+            if isinstance(attachment, Sequence):
+                return await self._vision_no_lock(update, context, update.message.reply_to_message)
 
         if is_group_chat(update):
             trigger_keyword = self.config['group_trigger_keyword']
@@ -1491,7 +1507,7 @@ class ChatGPTTelegramBot:
                     and update.message.reply_to_message.from_user.id != context.bot.id
                 ):
                     reply_text = message_text(update.message.reply_to_message)
-                    prompt = f'"{reply_text}" {prompt}'
+                    prompt = f'"{reply_text}"\n---\n{prompt}'
             else:
                 if update.message.reply_to_message and update.message.reply_to_message.from_user.id == context.bot.id:
                     logging.info('Message is a reply to the bot, allowing...')
@@ -2049,6 +2065,90 @@ class ChatGPTTelegramBot:
         if self.openai.db_pool:
             await self.openai.db_pool.close()
 
+    async def handle_pdf(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """
+        Extract text from PDF files and process as prompt.
+
+        FIX LOCKING; REWRITE AFTER AI
+        """
+        if not await self.check_allowed_and_within_budget(update, context):
+            return
+
+        caption = update.message.caption or ''
+        if is_group_chat(update):
+            trigger_keyword = self.config['group_trigger_keyword']
+
+            if not caption.lower().startswith(trigger_keyword.lower()):
+                # If it's a reply to bot, allow, otherwise ignore
+                if update.message.reply_to_message and update.message.reply_to_message.from_user.id == context.bot.id:
+                    logging.info('PDF is a reply to the bot, allowing...')
+                else:
+                    logging.warning('PDF caption does not start with trigger keyword, ignoring...')
+                    return
+
+        logging.info(f'New PDF received from user {update.message.from_user.name} (id: {update.message.from_user.id})')
+
+        async def _process_pdf():
+            try:
+                pdf_file = await context.bot.get_file(update.message.document.file_id)
+
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_pdf:
+                    await pdf_file.download_to_drive(temp_pdf.name)
+                    temp_path = temp_pdf.name
+
+                extracted_text = ''
+                try:
+                    reader = PdfReader(temp_path)
+                    number_of_pages = len(reader.pages)
+
+                    for i in range(number_of_pages):
+                        page = reader.pages[i]
+                        page_text = page.extract_text() or ''
+                        extracted_text += f'[Page number {i}]' + page_text + '\n\n'
+
+                        # Limit the total text to prevent excessive token usage
+                        if len(extracted_text) > 30000:
+                            extracted_text = extracted_text[:30000]
+                            extracted_text += '\n\n[Text truncated due to length]'
+                            break
+
+                except Exception as e:
+                    logging.exception(e)
+                    await update.effective_message.reply_text(
+                        message_thread_id=get_forum_thread_id(update),
+                        text=f'Error extracting text from PDF: {str(e)}',
+                    )
+                    return
+                finally:
+                    # Clean up the temporary file
+                    if os.path.exists(temp_path):
+                        os.remove(temp_path)
+
+                if not extracted_text.strip():
+                    await update.effective_message.reply_text(
+                        message_thread_id=get_forum_thread_id(update),
+                        text='No text could be extracted from the PDF. It might be scanned or contain only images.',
+                    )
+                    return
+
+                prompt = (
+                    f'{caption}\n---\nPDF Content:\n{extracted_text}' if caption else f'PDF Content:\n{extracted_text}'
+                )
+
+                with update.message._unfrozen() as message:
+                    message.text = prompt
+
+                await self._prompt_no_lock(update, context)
+
+            except Exception as e:
+                logging.exception(e)
+                await update.effective_message.reply_text(
+                    message_thread_id=get_forum_thread_id(update),
+                    text=f'Failed to process PDF: {str(e)}',
+                )
+
+        await wrap_with_indicator(update, context, _process_pdf, constants.ChatAction.TYPING)
+
     def run(self):
         """
         Runs the bot indefinitely until the user presses Ctrl+C
@@ -2089,6 +2189,7 @@ class ChatGPTTelegramBot:
                 self.transcribe,
             )
         )
+        application.add_handler(MessageHandler(filters.Document.PDF, self.handle_pdf))
         application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), self.prompt))
         application.add_handler(
             MessageReactionHandler(

@@ -18,3 +18,4 @@ youtube-transcript-api==1.0.0
 asyncpg==0.30.0
 google-api-python-client==2.140.0
 dagger-io==0.18.5
+pypdf==5.5.0
