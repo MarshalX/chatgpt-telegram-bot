@@ -483,13 +483,22 @@ class OpenAIHelper:
                         -self.config['max_history_size'] - 1 :
                     ]
 
+            max_tokens_arg_name = 'max_completion_tokens' if model in GPT_5_MODELS else 'max_tokens'
             common_args = {
                 'model': model,
                 'messages': self.conversations[chat_id],
-                'max_tokens': self.config['max_output_tokens'],
+                max_tokens_arg_name: self.config['max_output_tokens'],
                 'stream': stream,
                 'user': user_id,
             }
+
+            if common_args['model'] in GPT_5_MODELS:
+                common_args.update(
+                    {
+                        'reasoning_effort': self.config['reasoning_effort'],
+                        'verbosity': self.config['response_format'],
+                    }
+                )
 
             if common_args['model'] not in GPT_SEARCH_MODELS:
                 common_args.update(

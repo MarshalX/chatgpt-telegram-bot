@@ -93,6 +93,8 @@ def main() -> None:
         'allowed_chat_ids_to_track': set(os.environ.get('ALLOWED_CHAT_IDS_TO_TRACK', '').split(',')),
         'web_search_context_size': os.environ.get('WEB_SEARCH_CONTEXT_SIZE', 'medium'),
         'web_search_support_annotations': os.environ.get('WEB_SEARCH_SUPPORT_ANNOTATIONS', 'true').lower() == 'true',
+        'reasoning_effort': os.environ.get('REASONING_EFFORT', 'medium').lower(),
+        'verbosity': os.environ.get('VERBOSITY', 'low').lower(),
     }
 
     if openai_config['enable_functions'] and not functions_available:
