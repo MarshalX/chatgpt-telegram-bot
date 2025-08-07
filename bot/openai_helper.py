@@ -496,7 +496,7 @@ class OpenAIHelper:
                 common_args.update(
                     {
                         'reasoning_effort': self.config['reasoning_effort'],
-                        'verbosity': self.config['response_format'],
+                        'verbosity': self.config['verbosity'],
                     }
                 )
 
