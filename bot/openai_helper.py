@@ -57,12 +57,27 @@ GPT_41_MODELS = (
     'gpt-4.1-mini-2025-04-14',
     'gpt-4.1-nano-2025-04-14',
 )
+GPT_5_MODELS = (
+    'gpt-5',
+    'gpt-5-mini',
+    'gpt-5-nano',
+    'gpt-5-2025-08-07',
+    'gpt-5-mini-2025-08-07',
+    'gpt-5-nano-2025-08-07',
+)
 GPT_SEARCH_MODELS = (
     'gpt-4o-search-preview',
     'gpt-4o-mini-search-preview',
 )
 GPT_ALL_MODELS = (
-    GPT_4_MODELS + GPT_4_32K_MODELS + GPT_4_VISION_MODELS + GPT_4_128K_MODELS + GPT_4O_MODELS + GPT_41_MODELS
+    GPT_4_MODELS
+    + GPT_4_32K_MODELS
+    + GPT_4_VISION_MODELS
+    + GPT_4_128K_MODELS
+    + GPT_4O_MODELS
+    + GPT_41_MODELS
+    + GPT_5_MODELS
+    + GPT_SEARCH_MODELS
 )
 
 
@@ -83,6 +98,10 @@ def default_max_output_tokens(model: str) -> int:
         return base * 16
     elif model in GPT_41_MODELS:
         return base * 32
+    elif model in GPT_5_MODELS:
+        return base * 32
+
+    return base
 
 
 def are_functions_available(model: str) -> bool:
@@ -114,8 +133,11 @@ _MODELS_COST = {
     'gpt-4.1-mini': (0.4, 0.1, 1.6),
     'gpt-4.1-nano': (0.1, 0.025, 0.4),
     'gpt-image-1': (5, 5, 40, 10),  # text input, cached input price, image output, input image
+    'gpt-5': (1.25, 0.125, 10),
+    'gpt-5-mini': (0.25, 0.025, 2),
+    'gpt-5-nano': (0.05, 0.005, 0.4),
 }
-_DEFAULT_MODEL_PRICE = (0, 0)
+_DEFAULT_MODEL_PRICE = (0, 0, 0)
 
 
 def get_model_cost(model: str, usage: Union[Usage, CompletionUsage]) -> float:
@@ -854,4 +876,6 @@ class OpenAIHelper:
             return base * 31  # 128K
         if self.config['model'] in GPT_41_MODELS:
             return base * 240  # 1M
+        if self.config['model'] in GPT_5_MODELS:
+            return base * 97  # ~400k
         raise NotImplementedError(f"Max tokens for model {self.config['model']} is not implemented yet.")
