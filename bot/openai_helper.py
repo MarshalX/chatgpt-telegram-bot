@@ -606,7 +606,6 @@ class OpenAIHelper:
                     continue
 
                 for tool_call in first_choice.delta.tool_calls:
-                    logging.info(f'[FUNC CALL][{times}] {tool_call}')
                     index = tool_call.index
 
                     if index not in final_tool_calls:
