@@ -3,7 +3,8 @@ import random
 from itertools import islice
 from typing import Dict, List
 
-from duckduckgo_search import DDGS
+from ddgs import DDGS
+from ddgs.exceptions import DDGSException
 
 from .plugin import Plugin
 
@@ -14,7 +15,8 @@ class DDGImageSearchPlugin(Plugin):
     """
 
     def __init__(self):
-        self.safesearch = os.getenv('DUCKDUCKGO_SAFESEARCH', 'moderate')
+        self.safesearch = os.getenv('DDGS_SAFESEARCH', 'moderate')
+        self.max_results = 10
 
     def get_source_name(self) -> str:
         return 'DuckDuckGo Images'
@@ -40,7 +42,7 @@ class DDGImageSearchPlugin(Plugin):
                             },
                             'count': {
                                 'type': 'integer',
-                                'description': 'The number of images to return. Default to 1 if not specified',
+                                'description': 'The number of images to return. Default to 10 if not specified',
                             },
                         },
                         'required': ['query', 'type', 'count'],
@@ -52,16 +54,16 @@ class DDGImageSearchPlugin(Plugin):
         ]
 
     async def execute(self, function_name, helper, **kwargs) -> Dict:
-        with DDGS() as ddgs:
+        try:
             image_type = kwargs.get('type', 'photo')
-            images_count = kwargs.get('count', 1)
-            ddgs_images_gen = ddgs.images(
-                kwargs['query'],
-                region=kwargs.get('region', 'wt-wt'),
+            results = DDGS().images(
+                query=kwargs['query'],
                 safesearch=self.safesearch,
+                max_results=kwargs.get('count', self.max_results),
                 type_image=image_type,
             )
-            results = list(islice(ddgs_images_gen, images_count))
+
+            results = list(islice(results, self.max_results))
             if not results or len(results) == 0:
                 return {'result': 'No results found'}
 
@@ -82,3 +84,5 @@ class DDGImageSearchPlugin(Plugin):
                     'photos': [result['image'] for result in results],
                 }
             }
+        except DDGSException as e:
+            return {'error': f'Error during DDGS image search: {str(e)}'}

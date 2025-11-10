@@ -7,6 +7,7 @@ import io
 import json
 import logging
 import os
+from collections import Counter
 from typing import TYPE_CHECKING, List, Optional, TypedDict, Union
 
 import httpx
@@ -219,7 +220,7 @@ class OpenAIHelper:
         :param config: A dictionary containing the GPT configuration
         :param plugin_manager: The plugin manager
         """
-        http_client = httpx.AsyncClient(proxies=config['proxy']) if 'proxy' in config else None
+        http_client = httpx.AsyncClient(proxy=config['proxy']) if 'proxy' in config else None
         self.client = openai.AsyncOpenAI(api_key=config['api_key'], http_client=http_client)
 
         self.db_pool = None
@@ -299,10 +300,10 @@ class OpenAIHelper:
         :param user_id: The user ID for tracking
         :return: The answer from the model and the number of tokens used
         """
-        plugins_used = ()
+        plugins_used = []
         response = await self.__common_get_chat_response(chat_id, query, image=image, user_id=user_id)
         if self.config['enable_functions']:
-            response, plugins_used = await self.__handle_function_call(chat_id, response, user_id=user_id)
+            response, _, plugins_used = await self.__handle_function_call(chat_id, response, user_id=user_id)
             if is_direct_result(response):
                 return response, 0
 
@@ -341,7 +342,8 @@ class OpenAIHelper:
             await self.__add_to_history(chat_id, role='assistant', content=answer)
 
         show_plugins_used = len(plugins_used) > 0 and self.config['show_plugins_used']
-        plugin_names = tuple(self.plugin_manager.get_plugin_source_name(plugin) for plugin in plugins_used)
+        plugins_used_counter = Counter(self.plugin_manager.get_plugin_source_name(plugin) for plugin in plugins_used)
+        plugin_names = [f'{name} x{count}' if count > 1 else name for name, count in plugins_used_counter.items()]
         if self.config['show_usage']:
             cost = get_model_cost(self.config['model'], response.usage)
             self.add_cost(chat_id, cost)
@@ -351,9 +353,9 @@ class OpenAIHelper:
             answer += f'\n\n---\nID: {chat_id[-2:]} {price}'
 
             if show_plugins_used:
-                answer += f"\n🔌 {', '.join(plugin_names)}"
+                answer += f'\n🔌 {", ".join(plugin_names)}'
         elif show_plugins_used:
-            answer += f"\n\n---\n🔌 {', '.join(plugin_names)}"
+            answer += f'\n\n---\n🔌 {", ".join(plugin_names)}'
 
         return answer, response.usage.total_tokens
 
@@ -368,17 +370,19 @@ class OpenAIHelper:
         :param user_id: The user ID for tracking
         :return: The answer from the model and the number of tokens used, or 'not_finished'
         """
-        plugins_used = ()
+        plugins_used = []
         response = await self.__common_get_chat_response(chat_id, query, stream=True, image=image, user_id=user_id)
         if self.config['enable_functions']:
-            response, plugins_used = await self.__handle_function_call(chat_id, response, stream=True, user_id=user_id)
+            response, response_chunks, plugins_used = await self.__handle_function_call(
+                chat_id, response, stream=True, user_id=user_id
+            )
             if is_direct_result(response):
                 yield response, '0'
                 return
 
         answer = ''
         last_chunk = None
-        async for chunk in response:
+        for chunk in response_chunks:
             last_chunk = chunk
             if len(chunk.choices) == 0:
                 continue
@@ -393,7 +397,8 @@ class OpenAIHelper:
         usage = last_chunk.usage
 
         show_plugins_used = len(plugins_used) > 0 and self.config['show_plugins_used']
-        plugin_names = tuple(self.plugin_manager.get_plugin_source_name(plugin) for plugin in plugins_used)
+        plugins_used_counter = Counter(self.plugin_manager.get_plugin_source_name(plugin) for plugin in plugins_used)
+        plugin_names = [f'{name} x{count}' if count > 1 else name for name, count in plugins_used_counter.items()]
         if self.config['show_usage']:
             cost = get_model_cost(self.config['model'], usage)
             self.add_cost(chat_id, cost)
@@ -403,9 +408,9 @@ class OpenAIHelper:
             answer += f'\n\n---\nID: {chat_id[-2:]} {price}'
 
             if show_plugins_used:
-                answer += f"\n🔌 {', '.join(plugin_names)}"
+                answer += f'\n🔌 {", ".join(plugin_names)}'
         elif show_plugins_used:
-            answer += f"\n\n---\n🔌 {', '.join(plugin_names)}"
+            answer += f'\n\n---\n🔌 {", ".join(plugin_names)}'
 
         yield answer, usage.total_tokens
 
@@ -523,7 +528,7 @@ class OpenAIHelper:
                 if len(functions) > 0:
                     common_args['tools'] = functions
                     common_args['tool_choice'] = 'auto'
-                    common_args['parallel_tool_calls'] = False
+                    common_args['parallel_tool_calls'] = True
 
             return await self.client.chat.completions.create(**common_args)
 
@@ -531,27 +536,77 @@ class OpenAIHelper:
             raise e
 
         except openai.BadRequestError as e:
-            raise Exception(f"⚠️ <i>{localized_text('openai_invalid', bot_language)}.</i> ⚠️\n{str(e)}") from e
+            raise Exception(f'⚠️ <i>{localized_text("openai_invalid", bot_language)}.</i> ⚠️\n{str(e)}') from e
 
         except Exception as e:
-            raise Exception(f"⚠️ <i>{localized_text('error', bot_language)}.</i> ⚠️\n{str(e)}") from e
+            raise Exception(f'⚠️ <i>{localized_text("error", bot_language)}.</i> ⚠️\n{str(e)}') from e
+
+    async def __call_functions_in_parallel(self, chat_id, final_tool_calls, times, cost, plugins_used):
+        logging.info(
+            f'[FUNC CALL][{times}] Calling functions in parallel: {list(f.function.name for f in final_tool_calls.values())}'
+        )
+
+        tasks = []
+        for tool_call in final_tool_calls.values():
+            function_name = tool_call.function.name
+            arguments = tool_call.function.arguments
+
+            logging.info(f'[FUNC CALL][{times}] Calling "{function_name}" with arguments {arguments}')
+            task = asyncio.create_task(self.plugin_manager.call_function(chat_id, function_name, self, arguments))
+            tasks.append((tool_call, function_name, task))
+
+        direct_responses = []
+        for tool_call, function_name, task in tasks:
+            function_response = await task
+            function_response_json = json.dumps(function_response, default=str)
+
+            plugins_used.append(function_name)
+
+            price = get_formatted_price(cost)
+            logging.info(
+                f'[FUNC CALL][{times}] "{function_name}" costed {price} returned {function_response_json[:100]}'
+            )
+
+            if is_direct_result(function_response):
+                logging.info(f'[FUNC CALL][{times}] "{function_name}" returned a direct result')
+                await self.__add_tool_call_to_history(chat_id, tool_call)
+                await self.__add_tool_call_result_to_history(
+                    chat_id=chat_id,
+                    tool_call_id=tool_call.id,
+                    tool_name=function_name,
+                    result=json.dumps({'result': 'Done, the content has been sent to the user.'}),
+                )
+                direct_responses.append(function_response)
+                continue
+
+            await self.__add_tool_call_to_history(chat_id, tool_call)
+            await self.__add_tool_call_result_to_history(
+                chat_id=chat_id, tool_call_id=tool_call.id, tool_name=function_name, result=function_response_json
+            )
+
+        return direct_responses, plugins_used
 
     async def __handle_function_call(
-        self, chat_id, response, stream=False, times=0, plugins_used=(), user_id: Optional[str] = None
+        self, chat_id, response, stream=False, times=0, plugins_used=None, user_id: Optional[str] = None
     ):
-        # TODO add support of parallel_tool_calls
+        if plugins_used is None:
+            plugins_used = []
+
         final_tool_calls = {}
+        response_chunks = []
 
         if stream:
             async for chunk in response:
+                response_chunks.append(chunk)
                 if not chunk.choices:
                     break
 
                 first_choice = chunk.choices[0]
                 if not first_choice.delta.tool_calls:
-                    break
+                    continue
 
                 for tool_call in first_choice.delta.tool_calls:
+                    logging.info(f'[FUNC CALL][{times}] {tool_call}')
                     index = tool_call.index
 
                     if index not in final_tool_calls:
@@ -571,35 +626,16 @@ class OpenAIHelper:
                 final_tool_calls[index] = tool_call
 
         if not final_tool_calls:
-            return response, plugins_used
-
-        if len(final_tool_calls) > 1:
-            logging.warning(
-                f'[FUNC CALL] Got multiple tool calls: {final_tool_calls}. '
-                f'Which is not supported yet. Only the first one will be used.'
-            )
-
-        tool_call = final_tool_calls[0]
-        function_name = tool_call.function.name
-        arguments = tool_call.function.arguments
-
-        await self.__add_tool_call_to_history(chat_id, tool_call, arguments)
-
-        logging.info(f'[FUNC CALL][{times}] Calling "{function_name}" with arguments {arguments}')
-        function_response = await self.plugin_manager.call_function(chat_id, function_name, self, arguments)
-        function_response_json = json.dumps(function_response, default=str)
-
-        if function_name not in plugins_used:
-            plugins_used += (function_name,)
+            return response, response_chunks, plugins_used
 
         if stream:
             usage = None
             # this is a chained function call
             # we do not need this response anymore except for finding usage
             async for chunk in response:
+                response_chunks.append(chunk)
                 if chunk.usage:
                     usage = chunk.usage
-                    break
         else:
             usage = response.usage
 
@@ -611,32 +647,18 @@ class OpenAIHelper:
             self.add_cost(chat_id, cost)
             self.set_tokens(chat_id, usage.total_tokens)
 
-        price = get_formatted_price(cost)
-        logging.info(f'[FUNC CALL][{times}] "{function_name}" costed {price} returned {function_response_json[:100]}')
-
-        if is_direct_result(function_response):
-            logging.info(f'[FUNC CALL][{times}] "{function_name}" returned a direct result')
-            await self.__add_tool_call_result_to_history(
-                chat_id=chat_id,
-                tool_call_id=tool_call.id,
-                tool_name=function_name,
-                result=json.dumps({'result': 'Done, the content has been sent to the user.'}),
-            )
-            return function_response, plugins_used
-
-        await self.__add_tool_call_result_to_history(
-            chat_id=chat_id,
-            tool_call_id=tool_call.id,
-            tool_name=function_name,
-            result=function_response_json,
+        direct_responses, plugins_used = await self.__call_functions_in_parallel(
+            chat_id, final_tool_calls, times, cost, plugins_used
         )
+        if direct_responses:
+            return direct_responses, response_chunks, plugins_used
 
         response = await self.client.chat.completions.create(
             model=self.config['model'],
             messages=self.conversations[chat_id],
             tools=self.plugin_manager.get_functions_specs(),
             tool_choice='auto' if times < self.config['functions_max_consecutive_calls'] else 'none',
-            parallel_tool_calls=False,
+            parallel_tool_calls=True,
             stream=stream,
             stream_options={'include_usage': True} if stream else None,
             user=user_id,
@@ -701,8 +723,7 @@ class OpenAIHelper:
             if len(response.data) == 0:
                 logging.error(f'No response from GPT: {str(response)}')
                 raise Exception(
-                    f"⚠️ <i>{localized_text('error', bot_language)}.</i> "
-                    f"⚠️\n{localized_text('try_again', bot_language)}."
+                    f'⚠️ <i>{localized_text("error", bot_language)}.</i> ⚠️\n{localized_text("try_again", bot_language)}.'
                 )
 
             image_base64 = response.data[0].b64_json
@@ -715,7 +736,7 @@ class OpenAIHelper:
 
             return image_bytes, self.config['image_size'], price
         except Exception as e:
-            raise Exception(f"⚠️ <i>{localized_text('error', bot_language)}.</i> ⚠️\n{str(e)}") from e
+            raise Exception(f'⚠️ <i>{localized_text("error", bot_language)}.</i> ⚠️\n{str(e)}') from e
 
     async def generate_speech(self, text: str) -> tuple[io.BytesIO, int]:
         """
@@ -737,7 +758,7 @@ class OpenAIHelper:
             temp_file.seek(0)
             return temp_file, len(text)
         except Exception as e:
-            raise Exception(f"⚠️ <i>{localized_text('error', bot_language)}.</i> ⚠️\n{str(e)}") from e
+            raise Exception(f'⚠️ <i>{localized_text("error", bot_language)}.</i> ⚠️\n{str(e)}') from e
 
     async def transcribe(self, filename):
         # FIXME do not use filename; use fileobj instead
@@ -753,7 +774,7 @@ class OpenAIHelper:
                 return result.text
         except Exception as e:
             logging.exception(e)
-            raise Exception(f"⚠️ <i>{localized_text('error', self.config['bot_language'])}.</i> ⚠️\n{str(e)}") from e
+            raise Exception(f'⚠️ <i>{localized_text("error", self.config["bot_language"])}.</i> ⚠️\n{str(e)}') from e
 
     async def reset_chat_history(self, chat_id: str, content: Optional[str] = None):
         """
@@ -784,7 +805,7 @@ class OpenAIHelper:
         return last_updated < now - datetime.timedelta(minutes=max_age_minutes)
 
     async def __add_tool_call_to_history(
-        self, chat_id, tool_call: Union['ChatCompletionMessageToolCall', 'ChoiceDeltaToolCall'], arguments: str
+        self, chat_id, tool_call: Union['ChatCompletionMessageToolCall', 'ChoiceDeltaToolCall']
     ):
         """
         Adds a tool call to the conversation history
@@ -798,13 +819,13 @@ class OpenAIHelper:
                         'type': 'function',
                         'function': {
                             'name': tool_call.function.name,
-                            'arguments': arguments,
+                            'arguments': tool_call.function.arguments,
                         },
                     }
                 ],
             }
         )
-        await self.add_conv_in_db(chat_id, 'assistant', arguments, tool_call.function.name)
+        await self.add_conv_in_db(chat_id, 'assistant', tool_call.function.arguments, tool_call.function.name)
 
     async def __add_tool_call_result_to_history(self, chat_id, tool_call_id, tool_name: str, result: str):
         """
@@ -887,4 +908,4 @@ class OpenAIHelper:
             return base * 240  # 1M
         if self.config['model'] in GPT_5_MODELS:
             return base * 97  # ~400k
-        raise NotImplementedError(f"Max tokens for model {self.config['model']} is not implemented yet.")
+        raise NotImplementedError(f'Max tokens for model {self.config["model"]} is not implemented yet.')

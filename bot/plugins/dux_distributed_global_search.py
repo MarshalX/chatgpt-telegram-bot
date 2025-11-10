@@ -2,21 +2,23 @@ import os
 from itertools import islice
 from typing import Dict, List
 
-from duckduckgo_search import DDGS
+from ddgs import DDGS
+from ddgs.exceptions import DDGSException
 
 from .plugin import Plugin
 
 
-class DDGWebSearchPlugin(Plugin):
+class DDGSPlugin(Plugin):
     """
-    A plugin to search the web for a given query, using DuckDuckGo
+    A plugin to search the web for a given query, using DDGS
     """
 
     def __init__(self):
-        self.safesearch = os.getenv('DUCKDUCKGO_SAFESEARCH', 'moderate')
+        self.safesearch = os.getenv('DDGS_SAFESEARCH', 'moderate')
+        self.max_results = 5
 
     def get_source_name(self) -> str:
-        return 'DuckDuckGo'
+        return 'DDGS'
 
     def get_spec(self) -> List[Dict]:
         return [
@@ -36,10 +38,9 @@ class DDGWebSearchPlugin(Plugin):
                                     'ru-ru',
                                     'uk-en',
                                     'us-en',
-                                    'wt-wt',
                                 ],
                                 'description': 'The region to use for the search. Infer this from the language used for the'
-                                'query. Default to `wt-wt` if not specified',
+                                'query. Default to `pl-pl` if not specified',
                             },
                         },
                         'required': ['query', 'region'],
@@ -51,16 +52,17 @@ class DDGWebSearchPlugin(Plugin):
         ]
 
     async def execute(self, function_name, helper, **kwargs) -> Dict:
-        with DDGS() as ddgs:
-            ddgs_gen = ddgs.text(
+        try:
+            results = DDGS().text(
                 kwargs['query'],
-                region=kwargs.get('region', 'wt-wt'),
+                region=kwargs.get('region', 'pl-pl'),
+                max_results=self.max_results,
                 safesearch=self.safesearch,
             )
-            results = list(islice(ddgs_gen, 3))
+            results = list(islice(results, self.max_results))
 
             if results is None or len(results) == 0:
-                return {'result': 'No good DuckDuckGo Search Result was found'}
+                return {'result': 'No good DDGS results were found'}
 
             def to_metadata(result: Dict) -> Dict[str, str]:
                 return {
@@ -70,3 +72,6 @@ class DDGWebSearchPlugin(Plugin):
                 }
 
             return {'result': [to_metadata(result) for result in results]}
+
+        except DDGSException as e:
+            return {'error': f'Error during DDGS search: {str(e)}'}

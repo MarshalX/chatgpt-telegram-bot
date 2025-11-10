@@ -197,7 +197,7 @@ async def is_allowed(config, update: Update, context: CallbackContext, is_inline
             if await is_user_in_group(update, context, user):
                 logging.info(f'{user} is a member. Allowing group chat message...')
                 return True
-        logging.info(f'Group chat messages from user {name} ' f'(id: {user_id}) are not allowed')
+        logging.info(f'Group chat messages from user {name} (id: {user_id}) are not allowed')
     return False
 
 
@@ -357,6 +357,10 @@ def is_direct_result(response: any) -> bool:
     :param response: The response value
     :return: Boolean indicating if the result is a direct result
     """
+    if isinstance(response, list):
+        # we do use lists to return multiple direct results from parallel function calls
+        return True
+
     if not isinstance(response, dict):
         try:
             json_response = json.loads(response)
@@ -368,6 +372,14 @@ def is_direct_result(response: any) -> bool:
 
 
 async def handle_direct_result(config, update: Update, response: any, save_reply: Optional[Callable] = None):
+    if isinstance(response, list):
+        for resp in response[:10]:  # limit to first 10 direct results to avoid flooding
+            await __handle_direct_result(config, update, resp, save_reply)
+    else:
+        await __handle_direct_result(config, update, response, save_reply)
+
+
+async def __handle_direct_result(config, update: Update, response: any, save_reply: Optional[Callable] = None):
     """
     Handles a direct result from a plugin
     """

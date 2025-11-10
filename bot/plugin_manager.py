@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Dict
 from plugins.auto_tts import AutoTextToSpeech
 from plugins.code_execution import CodeExecutionPlugin
 from plugins.ddg_image_search import DDGImageSearchPlugin
-from plugins.google_web_search import GoogleWebSearchPlugin
+from plugins.dux_distributed_global_search import DDGSPlugin
 from plugins.gtts_text_to_speech import GTTSTextToSpeech
 from plugins.sequential_thinking import SequentialThinkingPlugin
 from plugins.telegram_direct import TelegramToolkitPlugin
@@ -31,12 +31,12 @@ class PluginManager:
             'weather': WeatherPlugin,
             # 'ddg_web_search': DDGWebSearchPlugin,
             # 'ddg_translate': DDGTranslatePlugin,
-            'google_web_search': GoogleWebSearchPlugin,
+            #'google_web_search': GoogleWebSearchPlugin,
             'ddg_image_search': DDGImageSearchPlugin,
+            'dux_distributed_global_search': DDGSPlugin,
             # 'spotify': SpotifyPlugin,
             'worldtimeapi': WorldTimeApiPlugin,
             # 'youtube_audio_extractor': YouTubeAudioExtractorPlugin,
-            # 'dice': DicePlugin,
             'gtts_text_to_speech': GTTSTextToSpeech,
             'auto_tts': AutoTextToSpeech,
             # 'whois': WhoisPlugin,

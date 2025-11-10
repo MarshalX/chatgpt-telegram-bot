@@ -335,8 +335,7 @@ class ChatGPTTelegramBot:
             return
 
         logging.info(
-            f'User {update.message.from_user.name} (id: {update.message.from_user.id}) '
-            'requested their usage statistics'
+            f'User {update.message.from_user.name} (id: {update.message.from_user.id}) requested their usage statistics'
         )
 
         user_id = update.message.from_user.id
@@ -361,59 +360,59 @@ class ChatGPTTelegramBot:
         bot_language = self.config['bot_language']
 
         text_current_conversation = (
-            f"*{localized_text('stats_conversation', bot_language)[0]}*:\n"
-            f"{chat_messages} {localized_text('stats_conversation', bot_language)[1]}\n"
-            f"{chat_token_length} {localized_text('stats_conversation', bot_language)[2]}\n"
-            "----------------------------\n"
+            f'*{localized_text("stats_conversation", bot_language)[0]}*:\n'
+            f'{chat_messages} {localized_text("stats_conversation", bot_language)[1]}\n'
+            f'{chat_token_length} {localized_text("stats_conversation", bot_language)[2]}\n'
+            '----------------------------\n'
         )
 
         # Check if image generation is enabled and, if so, generate the image statistics for today
         text_today_images = ''
         if self.config.get('enable_image_generation', False):
-            text_today_images = f"{images_today} {localized_text('stats_images', bot_language)}\n"
+            text_today_images = f'{images_today} {localized_text("stats_images", bot_language)}\n'
 
         text_today_vision = ''
         if self.config.get('enable_vision', False):
-            text_today_vision = f"{vision_today} {localized_text('stats_vision', bot_language)}\n"
+            text_today_vision = f'{vision_today} {localized_text("stats_vision", bot_language)}\n'
 
         text_today_tts = ''
         if self.config.get('enable_tts_generation', False):
-            text_today_tts = f"{characters_today} {localized_text('stats_tts', bot_language)}\n"
+            text_today_tts = f'{characters_today} {localized_text("stats_tts", bot_language)}\n'
 
         text_today = (
-            f"*{localized_text('usage_today', bot_language)}:*\n"
-            f"{tokens_today} {localized_text('stats_tokens', bot_language)}\n"
-            f"{text_today_images}"  # Include the image statistics for today if applicable
-            f"{text_today_vision}"
-            f"{text_today_tts}"
-            f"{transcribe_minutes_today} {localized_text('stats_transcribe', bot_language)[0]} "
-            f"{transcribe_seconds_today} {localized_text('stats_transcribe', bot_language)[1]}\n"
-            f"{localized_text('stats_total', bot_language)}{current_cost['cost_today']:.2f}\n"
-            "----------------------------\n"
+            f'*{localized_text("usage_today", bot_language)}:*\n'
+            f'{tokens_today} {localized_text("stats_tokens", bot_language)}\n'
+            f'{text_today_images}'  # Include the image statistics for today if applicable
+            f'{text_today_vision}'
+            f'{text_today_tts}'
+            f'{transcribe_minutes_today} {localized_text("stats_transcribe", bot_language)[0]} '
+            f'{transcribe_seconds_today} {localized_text("stats_transcribe", bot_language)[1]}\n'
+            f'{localized_text("stats_total", bot_language)}{current_cost["cost_today"]:.2f}\n'
+            '----------------------------\n'
         )
 
         text_month_images = ''
         if self.config.get('enable_image_generation', False):
-            text_month_images = f"{images_month} {localized_text('stats_images', bot_language)}\n"
+            text_month_images = f'{images_month} {localized_text("stats_images", bot_language)}\n'
 
         text_month_vision = ''
         if self.config.get('enable_vision', False):
-            text_month_vision = f"{vision_month} {localized_text('stats_vision', bot_language)}\n"
+            text_month_vision = f'{vision_month} {localized_text("stats_vision", bot_language)}\n'
 
         text_month_tts = ''
         if self.config.get('enable_tts_generation', False):
-            text_month_tts = f"{characters_month} {localized_text('stats_tts', bot_language)}\n"
+            text_month_tts = f'{characters_month} {localized_text("stats_tts", bot_language)}\n'
 
         # Check if image generation is enabled and, if so, generate the image statistics for the month
         text_month = (
-            f"*{localized_text('usage_month', bot_language)}:*\n"
-            f"{tokens_month} {localized_text('stats_tokens', bot_language)}\n"
-            f"{text_month_images}"  # Include the image statistics for the month if applicable
-            f"{text_month_vision}"
-            f"{text_month_tts}"
-            f"{transcribe_minutes_month} {localized_text('stats_transcribe', bot_language)[0]} "
-            f"{transcribe_seconds_month} {localized_text('stats_transcribe', bot_language)[1]}\n"
-            f"{localized_text('stats_total', bot_language)}{current_cost['cost_month']:.2f}"
+            f'*{localized_text("usage_month", bot_language)}:*\n'
+            f'{tokens_month} {localized_text("stats_tokens", bot_language)}\n'
+            f'{text_month_images}'  # Include the image statistics for the month if applicable
+            f'{text_month_vision}'
+            f'{text_month_tts}'
+            f'{transcribe_minutes_month} {localized_text("stats_transcribe", bot_language)[0]} '
+            f'{transcribe_seconds_month} {localized_text("stats_transcribe", bot_language)[1]}\n'
+            f'{localized_text("stats_total", bot_language)}{current_cost["cost_month"]:.2f}'
         )
 
         # text_budget filled with conditional content
@@ -421,9 +420,9 @@ class ChatGPTTelegramBot:
         budget_period = self.config['budget_period']
         if remaining_budget < float('inf'):
             text_budget += (
-                f"{localized_text('stats_budget', bot_language)}"
-                f"{localized_text(budget_period, bot_language)}: "
-                f"${remaining_budget:.2f}.\n"
+                f'{localized_text("stats_budget", bot_language)}'
+                f'{localized_text(budget_period, bot_language)}: '
+                f'${remaining_budget:.2f}.\n'
             )
         # No longer works as of July 21st 2023, as OpenAI has removed the billing API
         # add OpenAI account information for admin request
@@ -462,8 +461,7 @@ class ChatGPTTelegramBot:
 
         # Update message text, clear self.last_message and send the request to prompt
         logging.info(
-            f'Resending the last prompt from user: {update.message.from_user.name} '
-            f'(id: {update.message.from_user.id})'
+            f'Resending the last prompt from user: {update.message.from_user.name} (id: {update.message.from_user.id})'
         )
         with update.message._unfrozen() as message:
             message.text = self.last_message.pop(chat_id)
@@ -668,8 +666,8 @@ class ChatGPTTelegramBot:
                 message_thread_id=get_forum_thread_id(update),
                 reply_to_message_id=get_reply_to_message_id(self.config, update),
                 text=(
-                    f"{localized_text('media_download_fail', bot_language)[0]}: "
-                    f"{str(e)}. {localized_text('media_download_fail', bot_language)[1]}"
+                    f'{localized_text("media_download_fail", bot_language)[0]}: '
+                    f'{str(e)}. {localized_text("media_download_fail", bot_language)[1]}'
                 ),
                 parse_mode=constants.ParseMode.HTML,
             )
@@ -679,7 +677,7 @@ class ChatGPTTelegramBot:
 
         action_msg = 'EDITING' if image_to_edit else 'GENERATING'
         logging.info(
-            f'New image {action_msg} request received from user {update.message.from_user.name} ' f'(id: {user_id})'
+            f'New image {action_msg} request received from user {update.message.from_user.name} (id: {user_id})'
         )
 
         async def _generate():
@@ -723,7 +721,7 @@ class ChatGPTTelegramBot:
                     file_id = sent_msg.document.file_id
                 else:
                     raise Exception(
-                        f"env variable IMAGE_RECEIVE_MODE has invalid value {self.config['image_receive_mode']}"
+                        f'env variable IMAGE_RECEIVE_MODE has invalid value {self.config["image_receive_mode"]}'
                     )
 
                 self.image_quality_cache[prompt_id]['low'] = {'file_id': file_id, 'caption': price_with_user}
@@ -741,7 +739,7 @@ class ChatGPTTelegramBot:
                 await update.effective_message.reply_text(
                     message_thread_id=get_forum_thread_id(update),
                     reply_to_message_id=get_reply_to_message_id(self.config, update),
-                    text=f"{localized_text('image_fail', self.config['bot_language'])}: {str(e)}",
+                    text=f'{localized_text("image_fail", self.config["bot_language"])}: {str(e)}',
                     parse_mode=constants.ParseMode.HTML,
                 )
 
@@ -887,7 +885,7 @@ class ChatGPTTelegramBot:
                 await update.effective_message.reply_text(
                     message_thread_id=get_forum_thread_id(update),
                     reply_to_message_id=get_reply_to_message_id(self.config, update),
-                    text=f"{localized_text('tts_fail', self.config['bot_language'])}: {str(e)}",
+                    text=f'{localized_text("tts_fail", self.config["bot_language"])}: {str(e)}',
                     parse_mode=constants.ParseMode.HTML,
                 )
 
@@ -919,8 +917,8 @@ class ChatGPTTelegramBot:
                     message_thread_id=get_forum_thread_id(update),
                     reply_to_message_id=get_reply_to_message_id(self.config, update),
                     text=(
-                        f"{localized_text('media_download_fail', bot_language)[0]}: "
-                        f"{str(e)}. {localized_text('media_download_fail', bot_language)[1]}"
+                        f'{localized_text("media_download_fail", bot_language)[0]}: '
+                        f'{str(e)}. {localized_text("media_download_fail", bot_language)[1]}'
                     ),
                     parse_mode=constants.ParseMode.HTML,
                 )
@@ -969,7 +967,7 @@ class ChatGPTTelegramBot:
 
                 if self.config['voice_reply_transcript'] and not response_to_transcription:
                     # Split into chunks of 4096 characters (Telegram's message limit)
-                    transcript_output = f"<i>{localized_text('transcript', bot_language)}:</i>\n\"{transcript}\""
+                    transcript_output = f'<i>{localized_text("transcript", bot_language)}:</i>\n"{transcript}"'
                     chunks = split_into_chunks(transcript_output)
 
                     for index, transcript_chunk in enumerate(chunks):
@@ -992,8 +990,8 @@ class ChatGPTTelegramBot:
 
                     # Split into chunks of 4096 characters (Telegram's message limit)
                     transcript_output = (
-                        f"<i>{localized_text('transcript', bot_language)}:</i>\n\"{transcript}\"\n\n"
-                        f"<i>{localized_text('answer', bot_language)}:</i>\n{response}"
+                        f'<i>{localized_text("transcript", bot_language)}:</i>\n"{transcript}"\n\n'
+                        f'<i>{localized_text("answer", bot_language)}:</i>\n{response}'
                     )
                     chunks = split_into_chunks(transcript_output)
 
@@ -1012,7 +1010,7 @@ class ChatGPTTelegramBot:
                 await update.effective_message.reply_text(
                     message_thread_id=get_forum_thread_id(update),
                     reply_to_message_id=get_reply_to_message_id(self.config, update),
-                    text=f"{localized_text('transcribe_fail', bot_language)}: {str(e)}",
+                    text=f'{localized_text("transcribe_fail", bot_language)}: {str(e)}',
                     parse_mode=constants.ParseMode.HTML,
                 )
             finally:
@@ -1089,8 +1087,8 @@ class ChatGPTTelegramBot:
                     message_thread_id=get_forum_thread_id(update),
                     reply_to_message_id=get_reply_to_message_id(self.config, update),
                     text=(
-                        f"{localized_text('media_download_fail', bot_language)[0]}: "
-                        f"{str(e)}. {localized_text('media_download_fail', bot_language)[1]}"
+                        f'{localized_text("media_download_fail", bot_language)[0]}: '
+                        f'{str(e)}. {localized_text("media_download_fail", bot_language)[1]}'
                     ),
                     parse_mode=constants.ParseMode.HTML,
                 )
@@ -1320,7 +1318,7 @@ class ChatGPTTelegramBot:
                             await update.effective_message.reply_text(
                                 message_thread_id=get_forum_thread_id(update),
                                 reply_to_message_id=get_reply_to_message_id(self.config, update),
-                                text=f"{localized_text('vision_fail', bot_language)}: {str(e)}",
+                                text=f'{localized_text("vision_fail", bot_language)}: {str(e)}',
                                 parse_mode=constants.ParseMode.HTML,
                             )
                 except Exception as e:
@@ -1328,7 +1326,7 @@ class ChatGPTTelegramBot:
                     await update.effective_message.reply_text(
                         message_thread_id=get_forum_thread_id(update),
                         reply_to_message_id=get_reply_to_message_id(self.config, update),
-                        text=f"{localized_text('vision_fail', bot_language)}: {str(e)}",
+                        text=f'{localized_text("vision_fail", bot_language)}: {str(e)}',
                         parse_mode=constants.ParseMode.HTML,
                     )
             vision_token_price = self.config['vision_token_price']
@@ -1743,7 +1741,7 @@ class ChatGPTTelegramBot:
             await update.effective_message.reply_text(
                 message_thread_id=get_forum_thread_id(update),
                 reply_to_message_id=get_reply_to_message_id(self.config, update),
-                text=f"{localized_text('chat_fail', self.config['bot_language'])} {str(e)}",
+                text=f'{localized_text("chat_fail", self.config["bot_language"])} {str(e)}',
                 parse_mode=constants.ParseMode.HTML,
             )
 
@@ -2161,6 +2159,9 @@ class ChatGPTTelegramBot:
             .post_init(self.post_init)
             .post_shutdown(self.post_shutdown)
             .concurrent_updates(True)
+            .pool_timeout(60.0)
+            .media_write_timeout(60.0)
+            .connect_timeout(15.0)
             .build()
         )
 
