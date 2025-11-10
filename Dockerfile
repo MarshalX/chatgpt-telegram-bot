@@ -6,7 +6,7 @@ ENV PYTHONFAULTHANDLER=1 \
      PIP_DISABLE_PIP_VERSION_CHECK=on
 
 # Install ffmpeg, Docker CLI and dependencies
-RUN apk --no-cache add ffmpeg docker curl
+RUN apk --no-cache add ffmpeg docker curl gcc musl-dev libffi-dev openssl-dev python3-dev build-base
 
 WORKDIR /app
 COPY . .
