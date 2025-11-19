@@ -45,8 +45,8 @@ class WeatherPlugin(Plugin):
                 'type': 'function',
                 'function': {
                     'name': 'get_forecast_weather',
-                    'description': "Get daily weather forecast for a location using Open Meteo APIs."
-                    f"Today is {datetime.today().strftime('%A, %B %d, %Y')}",
+                    'description': 'Get daily weather forecast for a location using Open Meteo APIs.'
+                    f'Today is {datetime.today().strftime("%A, %B %d, %Y")}',
                     'parameters': {
                         'type': 'object',
                         'properties': {

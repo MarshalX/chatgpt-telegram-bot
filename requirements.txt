@@ -2,7 +2,7 @@ python-dotenv==1.2.1
 pydub==0.25.1
 audioop-lts==0.2.2
 tiktoken==0.12.0
-openai==1.109.1
+openai==2.8.1
 python-telegram-bot==22.5
 tenacity==8.5.0
 wolframalpha~=5.0.0
@@ -20,3 +20,4 @@ asyncpg==0.30.0
 google-api-python-client==2.140.0
 dagger-io==0.19.6
 pypdf==5.5.0
+aiofiles==25.1.0

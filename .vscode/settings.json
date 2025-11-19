@@ -4,6 +4,7 @@
     "python.linting.enabled": true,
     "python.linting.ruffEnabled": true,
     "python.formatting.provider": "ruff",
+    "python.analysis.typeCheckingMode": "off",
     "[python]": {
         "editor.formatOnSave": true,
         "editor.codeActionsOnSave": {

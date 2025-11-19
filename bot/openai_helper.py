@@ -10,6 +10,7 @@ import os
 from collections import Counter
 from typing import TYPE_CHECKING, List, Optional, TypedDict, Union
 
+import aiofiles
 import httpx
 import openai
 from openai._utils import async_maybe_transform
@@ -59,12 +60,18 @@ GPT_41_MODELS = (
     'gpt-4.1-nano-2025-04-14',
 )
 GPT_5_MODELS = (
+    'gpt-5.1',
+    'gpt-5.1-2025-11-13',
+    'gpt-5.1-codex',
+    'gpt-5.1-codex-mini',
+    'gpt-5.1-chat-latest',
     'gpt-5',
     'gpt-5-mini',
     'gpt-5-nano',
     'gpt-5-2025-08-07',
     'gpt-5-mini-2025-08-07',
     'gpt-5-nano-2025-08-07',
+    'gpt-5-chat-latest',
 )
 GPT_SEARCH_MODELS = (
     'gpt-4o-search-preview',
@@ -137,6 +144,9 @@ _MODELS_COST = {
     'gpt-5': (1.25, 0.125, 10),
     'gpt-5-mini': (0.25, 0.025, 2),
     'gpt-5-nano': (0.05, 0.005, 0.4),
+    'gpt-5.1': (1.25, 0.125, 10),
+    'gpt-5.1-codex': (1.25, 0.125, 10),
+    'gpt-5.1-codex-mini': (0.25, 0.025, 2),
 }
 _DEFAULT_MODEL_PRICE = (0, 0, 0)
 
@@ -765,7 +775,7 @@ class OpenAIHelper:
         Transcribes the audio file using the Whisper model.
         """
         try:
-            with open(filename, 'rb') as audio:  # noqa: ASYNC101
+            async with aiofiles.open(filename, mode='rb') as audio:
                 prompt_text = self.config['whisper_prompt']
                 result = await self.client.audio.transcriptions.create(
                     model='whisper-1', file=audio, prompt=prompt_text
