@@ -53,11 +53,12 @@ class DDGSPlugin(Plugin):
 
     async def execute(self, function_name, helper, **kwargs) -> Dict:
         try:
-            results = DDGS(backend='google, yandex, duckduckgo').text(
+            results = DDGS().text(
                 kwargs['query'],
                 region=kwargs.get('region', 'pl-pl'),
                 max_results=self.max_results,
                 safesearch=self.safesearch,
+                backend='google, yandex, duckduckgo',
             )
             results = list(islice(results, self.max_results))
 
