@@ -58,7 +58,7 @@ class DDGSPlugin(Plugin):
                 region=kwargs.get('region', 'pl-pl'),
                 max_results=self.max_results,
                 safesearch=self.safesearch,
-                backend='google, yandex, duckduckgo',
+                backend='yandex, duckduckgo',
             )
             results = list(islice(results, self.max_results))
 
