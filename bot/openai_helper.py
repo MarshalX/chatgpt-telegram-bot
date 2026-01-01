@@ -785,6 +785,34 @@ class OpenAIHelper:
             logging.exception(e)
             raise Exception(f'⚠️ <i>{localized_text("error", self.config["bot_language"])}.</i> ⚠️\n{str(e)}') from e
 
+    async def get_thread_topic(self, chat_id: str) -> str:
+        """
+        Gets the topic of the conversation.
+        :param chat_id: The chat ID
+        :return: The topic of the conversation
+        """
+        TOPIC_LEN_LIMIT = 30
+
+        if chat_id not in self.conversations or self.is_empty_history(chat_id):
+            return ''
+
+        messages = [
+            {
+                'role': 'system',
+                'content': (
+                    'You generate conversation titles. '
+                    'Return ONLY a title. '
+                    'Max 3 words. No punctuation. No explanations.'
+                ),
+            },
+            {'role': 'user', 'content': str(self.conversations[chat_id][1:])},
+        ]
+        response = await self.client.chat.completions.create(
+            model=self.config['model'], messages=messages, temperature=0.4
+        )
+        topic = response.choices[0].message.content.strip()[:TOPIC_LEN_LIMIT]
+        return topic
+
     async def reset_chat_history(self, chat_id: str, content: Optional[str] = None):
         """
         Resets the conversation history.
@@ -798,6 +826,17 @@ class OpenAIHelper:
 
         await self.init_conv_in_db(chat_id)
         await self.add_conv_in_db(chat_id, 'system', content)
+
+    def is_empty_history(self, chat_id: str) -> bool:
+        """
+        Checks if the conversation history is empty (only contains the system prompt).
+        :param chat_id: The chat ID
+        :return: A boolean indicating whether the conversation history is empty
+        """
+        if chat_id not in self.conversations:
+            return True
+
+        return chat_id in self.conversations and len(self.conversations[chat_id]) <= 1
 
     def __max_age_reached(self, chat_id: str) -> bool:
         """

@@ -4,6 +4,7 @@ import asyncio
 import io
 import logging
 import os
+import random
 import tempfile
 import time
 from collections.abc import Sequence
@@ -258,6 +259,7 @@ class ChatGPTTelegramBot:
         self.replies_tracker = {}
         self.bot_message_ids = set()
         self.pending_quality_confirmations = {}  # Store pending confirmations
+        self.forum_topic_icon_stickers = {}
 
     def get_thread_id(self, update: Update) -> str:
         c = update.effective_chat.id
@@ -265,7 +267,12 @@ class ChatGPTTelegramBot:
         if not m:
             raise ValueError('No message found in update')
 
+        thread_id = get_forum_thread_id(update)
+        if thread_id:
+            return f'{c}_{thread_id}'
+
         if is_private_chat(update):
+            # if threads are disabled use global context
             return f'{c}'
 
         if not m.reply_to_message:
@@ -320,7 +327,9 @@ class ChatGPTTelegramBot:
             + '\n\n'
             + localized_text('help_text', bot_language)[2]
         )
-        await update.message.reply_text(help_text, disable_web_page_preview=True)
+        await update.message.reply_text(
+            help_text, disable_web_page_preview=True, message_thread_id=get_forum_thread_id(update)
+        )
 
     async def stats(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """
@@ -433,7 +442,9 @@ class ChatGPTTelegramBot:
         #     )
 
         usage_text = text_current_conversation + text_today + text_month + text_budget
-        await update.message.reply_text(usage_text, parse_mode=constants.ParseMode.HTML)
+        await update.message.reply_text(
+            usage_text, parse_mode=constants.ParseMode.HTML, message_thread_id=get_forum_thread_id(update)
+        )
 
     async def resend(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """
@@ -706,6 +717,7 @@ class ChatGPTTelegramBot:
                 if self.config['image_receive_mode'] == 'photo':
                     sent_msg = await update.effective_message.reply_photo(
                         reply_to_message_id=get_reply_to_message_id(self.config, update),
+                        message_thread_id=get_forum_thread_id(update),
                         photo=image_bytes,
                         caption=price_with_user,
                         reply_markup=reply_markup,
@@ -714,6 +726,7 @@ class ChatGPTTelegramBot:
                 elif self.config['image_receive_mode'] == 'document':
                     sent_msg = await update.effective_message.reply_document(
                         reply_to_message_id=get_reply_to_message_id(self.config, update),
+                        message_thread_id=get_forum_thread_id(update),
                         document=image_bytes,
                         caption=price_with_user,
                         reply_markup=reply_markup,
@@ -833,6 +846,7 @@ class ChatGPTTelegramBot:
                     chat_id=query.message.chat_id,
                     text=f'Failed to improve image quality: {str(e)}',
                     reply_to_message_id=query.message.message_id,
+                    message_thread_id=get_forum_thread_id(update),
                 )
 
         await wrap_with_indicator(update, context, _generate, constants.ChatAction.UPLOAD_PHOTO)
@@ -867,6 +881,7 @@ class ChatGPTTelegramBot:
 
                 sent_msg = await update.effective_message.reply_voice(
                     reply_to_message_id=get_reply_to_message_id(self.config, update),
+                    message_thread_id=get_forum_thread_id(update),
                     voice=speech_file,
                 )
                 self.save_reply(sent_msg, update)
@@ -1442,6 +1457,8 @@ class ChatGPTTelegramBot:
                 chat=update.message_reaction.chat,
                 from_user=update.message_reaction.user,
                 text=text,
+                is_topic_message=update.message_reaction.is_topic_message,
+                message_thread_id=update.message_reaction.message_thread_id,
                 reply_to_message=Message(  # required for context id resolving
                     message_id=update.message_reaction.message_id,
                     date=update.message_reaction.date,
@@ -1458,6 +1475,23 @@ class ChatGPTTelegramBot:
         # now call with fake compatible update
         await self.prompt(new_update, context)
 
+    async def _set_thread_topic_if_needed(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        ai_context_id = self.get_thread_id(update)
+        thread_id = get_forum_thread_id(update)
+
+        try:
+            topic_icon = random.choice(list(self.forum_topic_icon_stickers.values()))  # TODO choice using AI
+            topic_name = await self.openai.get_thread_topic(ai_context_id)
+            await context.bot.edit_forum_topic(
+                chat_id=update.effective_chat.id,
+                message_thread_id=thread_id,
+                name=topic_name,
+                icon_custom_emoji_id=topic_icon,
+            )
+            logging.info(f'Set topic for thread {thread_id} to "{topic_name}"')
+        except Exception as e:
+            logging.error(f'Failed to set topic for thread {thread_id}', exc_info=e)
+
     @with_conversation_lock
     async def prompt(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         await self._prompt_no_lock(update, context)
@@ -1473,11 +1507,16 @@ class ChatGPTTelegramBot:
             return
 
         ai_context_id = self.get_thread_id(update)
-        logging.info(f'New message received from user {update.message.from_user.name} (CTX: {ai_context_id})')
+        thread_id = get_forum_thread_id(update)
+        logging.info(
+            f'New message received from user {update.message.from_user.name} (CTX: {ai_context_id}, THREAD: {thread_id})'
+        )
         chat_id = update.effective_chat.id
         user_id = update.message.from_user.id
         prompt = message_text(update.message)
         self.last_message[chat_id] = prompt
+
+        should_set_topic = thread_id and self.openai.is_empty_history(ai_context_id)
 
         if update.message.reply_to_message and update.message.reply_to_message.effective_attachment:
             attachment = update.message.reply_to_message.effective_attachment
@@ -1735,6 +1774,9 @@ class ChatGPTTelegramBot:
                 await wrap_with_indicator(update, context, _reply, constants.ChatAction.TYPING)
 
             add_chat_request_to_usage_tracker(self.usage, self.config, user_id, total_tokens)
+
+            if should_set_topic:
+                await self._set_thread_topic_if_needed(update, context)
 
         except Exception as e:
             logging.exception(e)
@@ -2052,6 +2094,10 @@ class ChatGPTTelegramBot:
         """
         await application.bot.set_my_commands(self.group_commands, scope=BotCommandScopeAllGroupChats())
         await application.bot.set_my_commands(self.commands)
+
+        emoji_sticker_list = await application.bot.get_forum_topic_icon_stickers()
+        for emoji in emoji_sticker_list:
+            self.forum_topic_icon_stickers[emoji.emoji] = emoji.custom_emoji_id
 
         if self.config['database_url']:
             self.openai.db_pool = await asyncpg.create_pool(dsn=self.config['database_url'])
