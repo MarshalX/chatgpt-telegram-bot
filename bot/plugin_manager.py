@@ -6,6 +6,7 @@ from plugins.auto_tts import AutoTextToSpeech
 from plugins.code_execution import CodeExecutionPlugin
 from plugins.ddg_image_search import DDGImageSearchPlugin
 from plugins.dux_distributed_global_search import DDGSPlugin
+from plugins.firecrawl_scraper import FirecrawlScraperPlugin
 from plugins.gtts_text_to_speech import GTTSTextToSpeech
 from plugins.searxng_search import SearxngSearchPlugin
 from plugins.sequential_thinking import SequentialThinkingPlugin
@@ -35,6 +36,7 @@ class PluginManager:
             #'google_web_search': GoogleWebSearchPlugin,
             'ddg_image_search': DDGImageSearchPlugin,
             'dux_distributed_global_search': DDGSPlugin,
+            'firecrawl': FirecrawlScraperPlugin,
             'searxng': SearxngSearchPlugin,
             # 'spotify': SpotifyPlugin,
             'worldtimeapi': WorldTimeApiPlugin,
