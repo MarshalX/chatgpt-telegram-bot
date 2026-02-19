@@ -60,6 +60,12 @@ GPT_41_MODELS = (
     'gpt-4.1-nano-2025-04-14',
 )
 GPT_5_MODELS = (
+    'gpt-5.2',
+    'gpt-5.2-2025-12-11',
+    'gpt-5.2-chat-latest',
+    'gpt-5.2-pro',
+    'gpt-5.2-pro-2025-12-11',
+    'gpt-5.2-codex',
     'gpt-5.1',
     'gpt-5.1-2025-11-13',
     'gpt-5.1-codex',
@@ -148,6 +154,9 @@ _MODELS_COST = {
     'gpt-5.1': (1.25, 0.125, 10),
     'gpt-5.1-codex': (1.25, 0.125, 10),
     'gpt-5.1-codex-mini': (0.25, 0.025, 2),
+    'gpt-5.2': (1.75, 0.175, 14),
+    'gpt-5.2-codex': (1.75, 0.175, 14),
+    'gpt-5.2-pro': (21, 0, 168),
 }
 _DEFAULT_MODEL_PRICE = (0, 0, 0)
 
