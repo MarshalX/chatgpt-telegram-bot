@@ -8,6 +8,8 @@ import logging
 from typing import Callable, Optional
 
 import telegram
+from html_to_text_pretty import html_to_text_pretty
+from sanitize_telegram_html import sanitize_telegram_html
 from telegram import ChatMember, Message, MessageEntity, Update, constants
 from telegram.ext import CallbackContext, ContextTypes
 from telegram.helpers import escape_markdown
@@ -143,7 +145,7 @@ async def edit_message_with_retry(
             chat_id=chat_id,
             message_id=int(message_id) if not is_inline else None,
             inline_message_id=message_id if is_inline else None,
-            text=text,
+            text=sanitize_telegram_html(text),
             parse_mode=constants.ParseMode.HTML if markdown else None,
             disable_web_page_preview=True,
         )
@@ -155,7 +157,7 @@ async def edit_message_with_retry(
                 chat_id=chat_id,
                 message_id=int(message_id) if not is_inline else None,
                 inline_message_id=message_id if is_inline else None,
-                text=text,
+                text=html_to_text_pretty(text),
             )
         except Exception as e:
             logging.warning(f'Failed to edit message: {str(e)}')
