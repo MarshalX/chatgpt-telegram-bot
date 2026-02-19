@@ -7,6 +7,7 @@ from plugins.code_execution import CodeExecutionPlugin
 from plugins.ddg_image_search import DDGImageSearchPlugin
 from plugins.dux_distributed_global_search import DDGSPlugin
 from plugins.gtts_text_to_speech import GTTSTextToSpeech
+from plugins.searxng_search import SearxngSearchPlugin
 from plugins.sequential_thinking import SequentialThinkingPlugin
 from plugins.telegram_direct import TelegramToolkitPlugin
 from plugins.weather import WeatherPlugin
@@ -34,6 +35,7 @@ class PluginManager:
             #'google_web_search': GoogleWebSearchPlugin,
             'ddg_image_search': DDGImageSearchPlugin,
             'dux_distributed_global_search': DDGSPlugin,
+            'searxng': SearxngSearchPlugin,
             # 'spotify': SpotifyPlugin,
             'worldtimeapi': WorldTimeApiPlugin,
             # 'youtube_audio_extractor': YouTubeAudioExtractorPlugin,
