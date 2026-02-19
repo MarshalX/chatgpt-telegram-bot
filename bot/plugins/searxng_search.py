@@ -35,7 +35,7 @@ class SearxngSearchPlugin(Plugin):
                 'type': 'function',
                 'function': {
                     'name': 'web_search',
-                    'description': 'Execute a web search using SearXNG for the given query and return a list of results with images, news, and related searches',
+                    'description': 'Execute a web search using SearXNG for the given query and return URLs with images, news, and related searches. Use the returned URLs with scrape_content to get full page content.',
                     'parameters': {
                         'type': 'object',
                         'properties': {
