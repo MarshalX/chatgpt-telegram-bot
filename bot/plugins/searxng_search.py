@@ -1,8 +1,9 @@
-import os
 import logging
+import os
 from typing import Dict, List, Optional
-import httpx
 from urllib.parse import urlparse
+
+import httpx
 
 from .plugin import Plugin
 
@@ -20,8 +21,8 @@ class SearxngSearchPlugin(Plugin):
         self.api_key = os.getenv('SEARXNG_API_KEY', '')
         self.timeout = float(os.getenv('SEARXNG_TIMEOUT', '10'))
         self.max_results = int(os.getenv('SEARXNG_MAX_RESULTS', '10'))
-        self.engines = os.getenv('SEARXNG_ENGINES', 'google,bing,duckduckgo')
-        
+        self.engines = os.getenv('SEARXNG_ENGINES', None)
+
         # Ensure URL doesn't have trailing slash for consistency
         self.searxng_url = self.searxng_url.rstrip('/')
 
@@ -38,25 +39,22 @@ class SearxngSearchPlugin(Plugin):
                     'parameters': {
                         'type': 'object',
                         'properties': {
-                            'query': {
-                                'type': 'string',
-                                'description': 'the user query to search for'
-                            },
+                            'query': {'type': 'string', 'description': 'the user query to search for'},
                             'num_results': {
                                 'type': 'integer',
-                                'description': 'number of results to return (default: 10, max: 50)',
+                                'description': f'number of results to return (default: 10, max: {self.max_results})',
                                 'minimum': 1,
-                                'maximum': 50,
-                                'default': 10
+                                'maximum': self.max_results,
+                                'default': 10,
                             },
                             'search_type': {
                                 'type': 'string',
                                 'description': 'type of search: general, images, videos, news (default: general)',
                                 'enum': ['general', 'images', 'videos', 'news'],
-                                'default': 'general'
+                                'default': 'general',
                             },
                         },
-                        'required': ['query'],
+                        'required': ['query', 'num_results', 'search_type'],
                         'additionalProperties': False,
                     },
                     'strict': True,
@@ -64,34 +62,34 @@ class SearxngSearchPlugin(Plugin):
             }
         ]
 
-    async def _search(self, query: str, num_results: int = None, search_type: str = 'general') -> Dict:
+    async def _search(self, query: str, num_results: Optional[int] = None, search_type: str = 'general') -> Dict:
         """
         Execute search against SearXNG instance.
-        
+
         Args:
             query: Search query string
             num_results: Number of results to return (default: self.max_results)
             search_type: Type of search - 'general', 'images', 'videos', 'news' (default: 'general')
-            
+
         Returns:
             Dictionary with search results
         """
         if num_results is None:
             num_results = self.max_results
         else:
-            num_results = min(num_results, 50)  # Cap at 50
-        
+            num_results = min(num_results, self.max_results)
+
         # Validate search type
         if search_type not in ['general', 'images', 'videos', 'news']:
             search_type = 'general'
-        
+
         try:
             # Prepare request headers
             headers = {}
-            
+
             if self.api_key:
                 headers['X-API-Key'] = self.api_key
-            
+
             # Map search type to SearXNG category
             category_map = {
                 'general': 'general',
@@ -100,7 +98,7 @@ class SearxngSearchPlugin(Plugin):
                 'news': 'news',
             }
             category = category_map.get(search_type, 'general')
-            
+
             # Prepare search parameters
             params = {
                 'q': query,
@@ -108,31 +106,34 @@ class SearxngSearchPlugin(Plugin):
                 'pageno': 1,
                 'categories': category,
                 'language': 'all',
-                'engines': self.engines,
             }
-            
+
+            if self.engines:
+                params['engines'] = self.engines
+
             search_url = f'{self.searxng_url}/search'
-            
+
             logger.debug(f'Searching SearXNG ({search_type}): {search_url} with query: {query}')
-            
+
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 response = await client.get(search_url, params=params, headers=headers)
                 response.raise_for_status()
                 data = response.json()
-            
+
             return data
-            
+
         except httpx.TimeoutException:
             logger.error(f'SearXNG search timeout for query: {query}')
             return {'error': 'Search request timed out. Please try again.'}
         except httpx.HTTPStatusError as e:
-            logger.error(f'SearXNG HTTP error {e.status_code}: {e}')
-            if e.status_code == 401:
+            status_code = e.response.status_code
+            logger.error(f'SearXNG HTTP error {status_code}: {e}')
+            if status_code == 401:
                 return {'error': 'Authentication failed. Check SEARXNG_API_KEY.'}
-            elif e.status_code == 403:
+            elif status_code == 403:
                 return {'error': 'Access forbidden. Check API permissions.'}
             else:
-                return {'error': f'Search service error: {e.status_code}'}
+                return {'error': f'Search service error: {status_code}'}
         except httpx.RequestError as e:
             logger.error(f'SearXNG request error: {e}')
             return {'error': 'Failed to connect to search service. Check SEARXNG_URL.'}
@@ -152,25 +153,30 @@ class SearxngSearchPlugin(Plugin):
         """Identify if a result is a news article based on URL and title patterns."""
         url = (result.get('url') or '').lower()
         title = (result.get('title') or '').lower()
-        
+
         news_keywords = [
-            'breaking news', 'latest news', 'top stories', 'news today',
-            'developing story', 'trending news', 'news', 'story'
+            'breaking news',
+            'latest news',
+            'top stories',
+            'news today',
+            'developing story',
+            'trending news',
+            'news',
+            'story',
         ]
-        
+
         has_news_keywords = any(keyword in title for keyword in news_keywords)
         has_news_path = any(path in url for path in ['/news/', '/world/', '/politics/', '/breaking/'])
-        
+
         return has_news_keywords or has_news_path
 
-    def _format_results(self, data: Dict, search_type: str = 'general') -> Dict:
+    def _format_results(self, data: Dict) -> Dict:
         """
         Format SearXNG JSON response into structured result format.
-        
+
         Args:
             data: Raw SearXNG API response
-            search_type: Type of search performed
-            
+
         Returns:
             Dictionary with organized results (organic, images, news, related_searches)
         """
@@ -180,19 +186,19 @@ class SearxngSearchPlugin(Plugin):
             'news': [],
             'related_searches': [],
         }
-        
+
         if 'error' in data:
             return formatted
-        
+
         results_list = data.get('results', [])
-        
+
         # Process organic results
         for idx, result in enumerate(results_list):
             if not result.get('url'):
                 continue
-            
+
             attribution = self._get_attribution(result.get('url', ''))
-            
+
             organic_result = {
                 'position': idx + 1,
                 'title': result.get('title', 'No title'),
@@ -201,9 +207,9 @@ class SearxngSearchPlugin(Plugin):
                 'attribution': attribution,
                 'date': result.get('publishedDate', ''),
             }
-            
+
             formatted['organic'].append(organic_result)
-            
+
             # Identify and separate news results
             if self._is_news_result(result):
                 news_result = {
@@ -215,7 +221,7 @@ class SearxngSearchPlugin(Plugin):
                     'date': result.get('publishedDate', ''),
                 }
                 formatted['news'].append(news_result)
-            
+
             # Extract image results
             if result.get('img_src'):
                 image_result = {
@@ -227,51 +233,48 @@ class SearxngSearchPlugin(Plugin):
                     'domain': attribution,
                 }
                 formatted['images'].append(image_result)
-        
+
         # Process related/suggestion searches
         if data.get('suggestions'):
-            formatted['related_searches'] = [
-                {'query': suggestion}
-                for suggestion in data.get('suggestions', [])[:5]
-            ]
-        
+            formatted['related_searches'] = [{'query': suggestion} for suggestion in data.get('suggestions', [])[:5]]
+
         # Cap results
         formatted['images'] = formatted['images'][:6]
         formatted['news'] = formatted['news'][:5]
-        
+
         return formatted
 
     async def execute(self, function_name, helper, **kwargs) -> Dict:
         """
         Execute web search and return results.
-        
+
         Args:
             function_name: Name of function to execute (should be 'web_search')
             helper: OpenAI helper instance
             **kwargs: Function arguments including 'query', optional 'num_results' and 'search_type'
-            
+
         Returns:
             Dictionary with search results or error message
         """
         query = kwargs.get('query', '').strip()
         num_results = kwargs.get('num_results', self.max_results)
         search_type = kwargs.get('search_type', 'general')
-        
+
         if not query:
             return {'result': 'Empty query provided'}
-        
+
         if len(query) > 500:
             return {'result': 'Query too long (max 500 characters)'}
-        
+
         # Execute search
         data = await self._search(query, num_results, search_type)
-        
+
         if 'error' in data:
             return {'result': data['error']}
-        
+
         # Format results
-        formatted_results = self._format_results(data, search_type)
-        
+        formatted_results = self._format_results(data)
+
         # Return based on search type
         if search_type == 'images':
             return {'result': formatted_results['images']}
