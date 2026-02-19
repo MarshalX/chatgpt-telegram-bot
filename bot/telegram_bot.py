@@ -921,7 +921,7 @@ class ChatGPTTelegramBot:
         filename = update.message.effective_attachment.file_unique_id
 
         async def _execute():
-            filename_ogg = f'{filename}.ogg'
+            filename_mp3 = f'{filename}.mp3'
             bot_language = self.config['bot_language']
             try:
                 media_file = await context.bot.get_file(update.message.effective_attachment.file_id)
@@ -943,7 +943,7 @@ class ChatGPTTelegramBot:
             try:
                 audio_track = AudioSegment.from_file(filename)
                 # FIXME do not save to file
-                audio_track.export(filename_ogg, format='ogg')
+                audio_track.export(filename_mp3, format='mp3', codec='libmp3lame', bitrate='128k')
                 logging.info(
                     f'New transcribe request received from user {update.message.from_user.name} '
                     f'(id: {update.message.from_user.id})'
@@ -965,7 +965,7 @@ class ChatGPTTelegramBot:
                 self.usage[user_id] = UsageTracker(user_id, update.message.from_user.name)
 
             try:
-                transcript = await self.openai.transcribe(filename_ogg)
+                transcript = await self.openai.transcribe(filename_mp3)
 
                 transcription_price = self.config['transcription_price']
                 self.usage[user_id].add_transcription_seconds(audio_track.duration_seconds, transcription_price)
@@ -1029,8 +1029,8 @@ class ChatGPTTelegramBot:
                     parse_mode=constants.ParseMode.HTML,
                 )
             finally:
-                if os.path.exists(filename_ogg):
-                    os.remove(filename_ogg)
+                if os.path.exists(filename_mp3):
+                    os.remove(filename_mp3)
                 if os.path.exists(filename):
                     os.remove(filename)
 
