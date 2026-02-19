@@ -777,9 +777,10 @@ class OpenAIHelper:
         """
         try:
             async with aiofiles.open(filename, mode='rb') as audio:
+                audio_data = await audio.read()
                 prompt_text = self.config['whisper_prompt']
                 result = await self.client.audio.transcriptions.create(
-                    model='whisper-1', file=audio, prompt=prompt_text
+                    model='whisper-1', file=audio_data, prompt=prompt_text
                 )
                 return result.text
         except Exception as e:
