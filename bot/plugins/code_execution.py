@@ -1,12 +1,13 @@
 import hashlib
 import logging
+import os
 from typing import Dict, List
 
 import dagger
 
 from .plugin import Plugin
 
-_IMAGE_NAME = 'python:3.12-slim'
+_IMAGE_NAME = os.getenv('CODE_EXECUTION_IMAGE_NAME', 'python:3.12-slim')
 # ref: https://wfhbrian.com/artificial-intelligence/mastering-chatgpts-code-interpreter-list-of-python-packages
 _LIST_OF_PACKAGES = [
     'pandas',
