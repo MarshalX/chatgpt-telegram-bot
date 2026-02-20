@@ -7,7 +7,6 @@ import dagger
 
 from .plugin import Plugin
 
-_IMAGE_NAME = os.getenv('CODE_EXECUTION_IMAGE_NAME', 'python:3.12-slim')
 # ref: https://wfhbrian.com/artificial-intelligence/mastering-chatgpts-code-interpreter-list-of-python-packages
 _LIST_OF_PACKAGES = [
     'pandas',
@@ -69,6 +68,7 @@ class CodeExecutionPlugin(Plugin):
 
     def __init__(self):
         super().__init__()
+        self.image_name = os.getenv('CODE_EXECUTION_IMAGE_NAME', 'python:3.12-slim')
 
     def get_source_name(self) -> str:
         return 'Code'
@@ -121,13 +121,12 @@ class CodeExecutionPlugin(Plugin):
             logging.error(f'Error executing code: {str(e)}')
             return {'error': f'Execution error: {str(e)}'}
 
-    @classmethod
-    async def _run_code_with_dagger(cls, code: str, timeout: int) -> str:
+    async def _run_code_with_dagger(self, code: str, timeout: int) -> str:
         """Execute Python code in an isolated Dagger container"""
 
         # Connect to the Dagger Engine
         async with dagger.Connection(config=dagger.Config(execute_timeout=timeout)) as client:
-            base_container = await cls._get_or_create_base_container(client)
+            base_container = await self._get_or_create_base_container(client)
 
             container = (
                 base_container
@@ -155,13 +154,12 @@ class CodeExecutionPlugin(Plugin):
             await self._get_or_create_base_container(client)
         CodeExecutionPlugin._bootstrap = True
 
-    @classmethod
-    async def _get_or_create_base_container(cls, client):
+    async def _get_or_create_base_container(self, client):
         """Get or create a cached container with all packages installed"""
 
         container = (
             client.container()
-            .from_(_IMAGE_NAME)
+            .from_(self.image_name)
             # .with_new_file(f'/app/requirements_{_REQUIREMENTS_CACHE_KEY}.txt', contents='\n'.join(_LIST_OF_PACKAGES))
             # .with_exec(['pip', 'install', '-r', f'/app/requirements_{_REQUIREMENTS_CACHE_KEY}.txt'])
             .with_workdir('/app')
