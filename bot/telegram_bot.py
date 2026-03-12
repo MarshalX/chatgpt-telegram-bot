@@ -125,12 +125,12 @@ class RateLimiter:
             # Increment the group message counter
             self.group_message_count[chat_id] += 1
 
-        # Calculate time to wait to meet rate limit
-        time_since_last_message = current_time - self.last_update_time[chat_id]
-        if time_since_last_message < self.private_limit:
-            await asyncio.sleep(self.private_limit - time_since_last_message)
+        # For private chats, enforce minimum gap between messages
+        if not is_group:
+            time_since_last_message = current_time - self.last_update_time[chat_id]
+            if time_since_last_message < self.private_limit:
+                await asyncio.sleep(self.private_limit - time_since_last_message)
 
-        # Update the last message time
         self.last_update_time[chat_id] = time.time()
         return True
 
@@ -151,14 +151,12 @@ class RateLimiter:
             return True
 
         # Override: significant content change
-        change = abs(current_length - prev_length)
-        threshold = cutoff * (2.0 if is_group else 1.5)
-        if change > threshold:
+        if abs(current_length - prev_length) > cutoff * 1.5:
             self.last_stream_update[chat_id] = current_time
             return True
 
-        # Group near message limit: hard suppress
-        if is_group and self.group_message_count.get(chat_id, 0) >= 0.8 * self.group_limit:
+        # Group near hard message limit: suppress
+        if is_group and self.group_message_count.get(chat_id, 0) >= 0.95 * self.group_limit:
             return False
 
         return False
