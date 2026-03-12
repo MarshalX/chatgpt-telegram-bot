@@ -796,33 +796,48 @@ class OpenAIHelper:
             logging.exception(e)
             raise Exception(f'⚠️ <i>{localized_text("error", self.config["bot_language"])}.</i> ⚠️\n{str(e)}') from e
 
-    async def get_thread_topic(self, chat_id: str) -> str:
+    async def get_thread_topic(self, chat_id: str, available_emoji: list[str] | None = None) -> tuple[str, str]:
         """
         Gets the topic of the conversation.
         :param chat_id: The chat ID
-        :return: The topic of the conversation
+        :param available_emoji: Optional list of emoji to pick from for the topic icon
+        :return: Tuple of (title, emoji) where emoji may be empty string
         """
         TOPIC_LEN_LIMIT = 30
 
         if chat_id not in self.conversations or self.is_empty_history(chat_id):
-            return ''
+            return '', ''
+
+        if available_emoji:
+            emoji_instruction = (
+                f' Also pick the single most thematically appropriate emoji from this list: {" ".join(available_emoji)}.'
+                ' Return it on the second line. Return nothing else.'
+            )
+            system_content = (
+                'You generate conversation titles. '
+                'Return ONLY a title on the first line. '
+                'Max 3 words. No punctuation. No explanations.'
+                + emoji_instruction
+            )
+        else:
+            system_content = (
+                'You generate conversation titles. '
+                'Return ONLY a title. '
+                'Max 3 words. No punctuation. No explanations.'
+            )
 
         messages = [
-            {
-                'role': 'system',
-                'content': (
-                    'You generate conversation titles. '
-                    'Return ONLY a title. '
-                    'Max 3 words. No punctuation. No explanations.'
-                ),
-            },
+            {'role': 'system', 'content': system_content},
             {'role': 'user', 'content': str(self.conversations[chat_id][1:])},
         ]
         response = await self.client.chat.completions.create(
             model=self.config['model'], messages=messages, temperature=0.4
         )
-        topic = response.choices[0].message.content.strip()[:TOPIC_LEN_LIMIT]
-        return topic
+        raw = response.choices[0].message.content.strip()
+        lines = raw.splitlines()
+        topic = lines[0].strip()[:TOPIC_LEN_LIMIT]
+        emoji = lines[1].strip() if len(lines) > 1 else ''
+        return topic, emoji
 
     async def reset_chat_history(self, chat_id: str, content: Optional[str] = None):
         """

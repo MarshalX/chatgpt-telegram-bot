@@ -1480,15 +1480,20 @@ class ChatGPTTelegramBot:
         thread_id = get_forum_thread_id(update)
 
         try:
-            topic_icon = random.choice(list(self.forum_topic_icon_stickers.values()))  # TODO choice using AI
-            topic_name = await self.openai.get_thread_topic(ai_context_id)
+            available_emoji = list(self.forum_topic_icon_stickers.keys())
+            topic_name, ai_emoji = await self.openai.get_thread_topic(ai_context_id, available_emoji)
+
+            topic_icon = self.forum_topic_icon_stickers.get(
+                ai_emoji, random.choice(list(self.forum_topic_icon_stickers.values()))
+            )
+
             await context.bot.edit_forum_topic(
                 chat_id=update.effective_chat.id,
                 message_thread_id=thread_id,
                 name=topic_name,
                 icon_custom_emoji_id=topic_icon,
             )
-            logging.info(f'Set topic for thread {thread_id} to "{topic_name}"')
+            logging.info(f'Set topic for thread {thread_id} to "{topic_name}" (icon: {ai_emoji or "random"})')
         except Exception as e:
             logging.error(f'Failed to set topic for thread {thread_id}', exc_info=e)
 
