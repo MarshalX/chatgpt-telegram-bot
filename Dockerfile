@@ -15,4 +15,4 @@ RUN pip install -r requirements.txt --no-cache-dir
 # Create a dagger directory for cache
 RUN mkdir -p /root/.dagger
 
-CMD ["python", "bot/main.py"]
+CMD ["ddtrace-run", "python", "bot/main.py"]
