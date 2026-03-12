@@ -1036,6 +1036,158 @@ class ChatGPTTelegramBot:
 
         await wrap_with_indicator(update, context, _execute, constants.ChatAction.TYPING)
 
+    async def _process_stream(self, stream_response, update: Update, context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> int:
+        """
+        Drives a streaming LLM response to Telegram.
+        Returns the final total_tokens count.
+        """
+        i = 0
+        prev = ''
+        sent_message = None
+        backoff = 0
+        processed_chunks = []  # Track which chunks have been processed
+        is_group = is_group_chat(update)
+        str_chat_id = str(chat_id)
+        total_tokens = 0
+
+        async for content, tokens in stream_response:
+            if is_direct_result(content):
+                await handle_direct_result(self.config, update, content, self.save_reply)
+                i = 0
+                prev = ''
+                sent_message = None
+                processed_chunks = []
+                continue
+
+            if len(content.strip()) == 0:
+                continue
+
+            stream_chunks = split_into_chunks(content)
+            if len(stream_chunks) > 1:
+                # Keep track of the last chunk as current content
+                content = stream_chunks[-1]
+
+                # Process any new complete chunks
+                for chunk_idx in range(len(processed_chunks), len(stream_chunks) - 1):
+                    try:
+                        # If we have a message already, edit it with the current complete chunk
+                        if sent_message is not None:
+                            # Check rate limits before sending
+                            can_send = await self.rate_limiter.check_and_wait(str_chat_id, is_group)
+                            if not can_send:
+                                logging.warning(f'Rate limit reached for chat {chat_id}, skipping update')
+                                continue
+
+                            await edit_message_with_retry(
+                                context,
+                                chat_id,
+                                str(sent_message.message_id),
+                                stream_chunks[chunk_idx],
+                            )
+
+                        # Create a new message for the next chunk (current content)
+                        # Check rate limits before sending
+                        can_send = await self.rate_limiter.check_and_wait(str_chat_id, is_group)
+                        if not can_send:
+                            logging.warning(f'Rate limit reached for chat {chat_id}, skipping new message')
+                            # Mark this chunk as processed anyway to avoid creating multiple messages later
+                            processed_chunks.append(chunk_idx)
+                            continue
+
+                        sent_message = await update.effective_message.reply_text(
+                            message_thread_id=get_forum_thread_id(update),
+                            text=content if len(content) > 0 else '...',
+                        )
+                        self.save_reply(sent_message, update)
+                        processed_chunks.append(chunk_idx)
+                    except Exception as e:
+                        logging.error(f'Error handling chunk: {e}')
+                        pass
+
+                # If we've processed all complete chunks, continue streaming with the last chunk
+                if len(processed_chunks) == len(stream_chunks) - 1:
+                    # We've handled all complete chunks, continue with normal streaming for the last chunk
+                    pass
+                else:
+                    # We still have unprocessed complete chunks, skip this iteration
+                    continue
+
+            cutoff = get_stream_cutoff_values(update, content)
+            cutoff += backoff
+
+            if i == 0:
+                try:
+                    # Check rate limits before sending first message
+                    can_send = await self.rate_limiter.check_and_wait(str_chat_id, is_group)
+                    if not can_send:
+                        logging.warning(f'Rate limit reached for chat {chat_id}, waiting for next update')
+                        continue
+
+                    if sent_message is not None:
+                        await context.bot.delete_message(
+                            chat_id=sent_message.chat_id,
+                            message_id=sent_message.message_id,
+                        )
+                    sent_message = await update.effective_message.reply_text(
+                        message_thread_id=get_forum_thread_id(update),
+                        reply_to_message_id=get_reply_to_message_id(self.config, update),
+                        text=content,
+                    )
+                    self.save_reply(sent_message, update)
+                except:
+                    continue
+
+            elif abs(len(content) - len(prev)) > cutoff or tokens != 'not_finished':
+                prev = content
+
+                try:
+                    # Instead of waiting, check if we should update the message
+                    should_update = tokens != 'not_finished' or self.rate_limiter.should_update(
+                        str_chat_id, is_group, len(content), len(prev), cutoff
+                    )
+
+                    # If we shouldn't update, skip this iteration
+                    if not should_update:
+                        continue
+
+                    # Otherwise, check rate limits and update if possible
+                    can_send = await self.rate_limiter.check_and_wait(str_chat_id, is_group)
+                    if not can_send:
+                        logging.warning(f'Rate limit reached for chat {chat_id}, skipping update')
+                        continue
+
+                    use_markdown = tokens != 'not_finished'
+                    await edit_message_with_retry(
+                        context,
+                        chat_id,
+                        str(sent_message.message_id),
+                        text=content,
+                        markdown=use_markdown,
+                    )
+
+                except RetryAfter as e:
+                    backoff += 5
+                    await asyncio.sleep(e.retry_after)
+                    continue
+
+                except TimedOut:
+                    backoff += 5
+                    await asyncio.sleep(0.5)
+                    continue
+
+                except Exception:
+                    backoff += 5
+                    continue
+
+                # Add a small delay between updates
+                await asyncio.sleep(0.01)
+
+            i += 1
+            if tokens != 'not_finished':
+                total_tokens = int(tokens)
+
+        return total_tokens
+
     @with_conversation_lock
     async def vision(self, update: Update, context: ContextTypes.DEFAULT_TYPE, reply: Message = None):
         await self._vision_no_lock(update, context, reply)
@@ -1138,149 +1290,7 @@ class ChatGPTTelegramBot:
                 stream_response = self.openai.get_chat_response_stream(
                     chat_id=ai_context_id, image=encode_image(temp_file_png), query=prompt, user_id=str(user_id)
                 )
-                i = 0
-                prev = ''
-                sent_message = None
-                backoff = 0
-                processed_chunks = []  # Track which chunks have been processed
-                is_group = is_group_chat(update)
-                str_chat_id = str(chat_id)
-
-                async for content, tokens in stream_response:
-                    if is_direct_result(content):
-                        await handle_direct_result(self.config, update, content, self.save_reply)
-                        i = 0
-                        prev = ''
-                        sent_message = None
-                        processed_chunks = []
-                        continue
-
-                    if len(content.strip()) == 0:
-                        continue
-
-                    stream_chunks = split_into_chunks(content)
-                    if len(stream_chunks) > 1:
-                        # Keep track of the last chunk as current content
-                        content = stream_chunks[-1]
-
-                        # Process any new complete chunks
-                        for chunk_idx in range(len(processed_chunks), len(stream_chunks) - 1):
-                            try:
-                                # If we have a message already, edit it with the current complete chunk
-                                if sent_message is not None:
-                                    # Check rate limits before sending
-                                    can_send = await self.rate_limiter.check_and_wait(str_chat_id, is_group)
-                                    if not can_send:
-                                        logging.warning(f'Rate limit reached for chat {chat_id}, skipping update')
-                                        continue
-
-                                    await edit_message_with_retry(
-                                        context,
-                                        chat_id,
-                                        str(sent_message.message_id),
-                                        stream_chunks[chunk_idx],
-                                    )
-
-                                # Create a new message for the next chunk (current content)
-                                # Check rate limits before sending
-                                can_send = await self.rate_limiter.check_and_wait(str_chat_id, is_group)
-                                if not can_send:
-                                    logging.warning(f'Rate limit reached for chat {chat_id}, skipping new message')
-                                    # Mark this chunk as processed anyway to avoid creating multiple messages later
-                                    processed_chunks.append(chunk_idx)
-                                    continue
-
-                                sent_message = await update.effective_message.reply_text(
-                                    message_thread_id=get_forum_thread_id(update),
-                                    text=content if len(content) > 0 else '...',
-                                )
-                                self.save_reply(sent_message, update)
-                                processed_chunks.append(chunk_idx)
-                            except Exception as e:
-                                logging.error(f'Error handling chunk: {e}')
-                                pass
-
-                        # If we've processed all complete chunks, continue streaming with the last chunk
-                        if len(processed_chunks) == len(stream_chunks) - 1:
-                            # We've handled all complete chunks, continue with normal streaming for the last chunk
-                            pass
-                        else:
-                            # We still have unprocessed complete chunks, skip this iteration
-                            continue
-
-                    cutoff = get_stream_cutoff_values(update, content)
-                    cutoff += backoff
-
-                    if i == 0:
-                        try:
-                            # Check rate limits before sending first message
-                            can_send = await self.rate_limiter.check_and_wait(str_chat_id, is_group)
-                            if not can_send:
-                                logging.warning(f'Rate limit reached for chat {chat_id}, waiting for next update')
-                                continue
-
-                            if sent_message is not None:
-                                await context.bot.delete_message(
-                                    chat_id=sent_message.chat_id,
-                                    message_id=sent_message.message_id,
-                                )
-                            sent_message = await update.effective_message.reply_text(
-                                message_thread_id=get_forum_thread_id(update),
-                                reply_to_message_id=get_reply_to_message_id(self.config, update),
-                                text=content,
-                            )
-                            self.save_reply(sent_message, update)
-                        except:
-                            continue
-
-                    elif abs(len(content) - len(prev)) > cutoff or tokens != 'not_finished':
-                        prev = content
-
-                        try:
-                            # Instead of waiting, check if we should update the message
-                            should_update = tokens != 'not_finished' or self.rate_limiter.should_update(
-                                str_chat_id, is_group, len(content), len(prev), cutoff
-                            )
-
-                            # If we shouldn't update, skip this iteration
-                            if not should_update:
-                                continue
-
-                            # Otherwise, check rate limits and update if possible
-                            can_send = await self.rate_limiter.check_and_wait(str_chat_id, is_group)
-                            if not can_send:
-                                logging.warning(f'Rate limit reached for chat {chat_id}, skipping update')
-                                continue
-
-                            use_markdown = tokens != 'not_finished'
-                            await edit_message_with_retry(
-                                context,
-                                chat_id,
-                                str(sent_message.message_id),
-                                text=content,
-                                markdown=use_markdown,
-                            )
-
-                        except RetryAfter as e:
-                            backoff += 5
-                            await asyncio.sleep(e.retry_after)
-                            continue
-
-                        except TimedOut:
-                            backoff += 5
-                            await asyncio.sleep(0.5)
-                            continue
-
-                        except Exception:
-                            backoff += 5
-                            continue
-
-                        # Add a small delay between updates
-                        await asyncio.sleep(0.01)
-
-                    i += 1
-                    if tokens != 'not_finished':
-                        total_tokens = int(tokens)
+                total_tokens = await self._process_stream(stream_response, update, context, chat_id)
 
             else:
                 try:
@@ -1574,149 +1584,7 @@ class ChatGPTTelegramBot:
                 stream_response = self.openai.get_chat_response_stream(
                     chat_id=ai_context_id, query=prompt, user_id=str(user_id)
                 )
-                i = 0
-                prev = ''
-                sent_message = None
-                backoff = 0
-                processed_chunks = []  # Track which chunks have been processed
-                is_group = is_group_chat(update)
-                str_chat_id = str(chat_id)
-
-                async for content, tokens in stream_response:
-                    if is_direct_result(content):
-                        await handle_direct_result(self.config, update, content, self.save_reply)
-                        i = 0
-                        prev = ''
-                        sent_message = None
-                        processed_chunks = []
-                        continue
-
-                    if len(content.strip()) == 0:
-                        continue
-
-                    stream_chunks = split_into_chunks(content)
-                    if len(stream_chunks) > 1:
-                        # Keep track of the last chunk as current content
-                        content = stream_chunks[-1]
-
-                        # Process any new complete chunks
-                        for chunk_idx in range(len(processed_chunks), len(stream_chunks) - 1):
-                            try:
-                                # If we have a message already, edit it with the current complete chunk
-                                if sent_message is not None:
-                                    # Check rate limits before sending
-                                    can_send = await self.rate_limiter.check_and_wait(str_chat_id, is_group)
-                                    if not can_send:
-                                        logging.warning(f'Rate limit reached for chat {chat_id}, skipping update')
-                                        continue
-
-                                    await edit_message_with_retry(
-                                        context,
-                                        chat_id,
-                                        str(sent_message.message_id),
-                                        stream_chunks[chunk_idx],
-                                    )
-
-                                # Create a new message for the next chunk (current content)
-                                # Check rate limits before sending
-                                can_send = await self.rate_limiter.check_and_wait(str_chat_id, is_group)
-                                if not can_send:
-                                    logging.warning(f'Rate limit reached for chat {chat_id}, skipping new message')
-                                    # Mark this chunk as processed anyway to avoid creating multiple messages later
-                                    processed_chunks.append(chunk_idx)
-                                    continue
-
-                                sent_message = await update.effective_message.reply_text(
-                                    message_thread_id=get_forum_thread_id(update),
-                                    text=content if len(content) > 0 else '...',
-                                )
-                                self.save_reply(sent_message, update)
-                                processed_chunks.append(chunk_idx)
-                            except Exception as e:
-                                logging.error(f'Error handling chunk: {e}')
-                                pass
-
-                        # If we've processed all complete chunks, continue streaming with the last chunk
-                        if len(processed_chunks) == len(stream_chunks) - 1:
-                            # We've handled all complete chunks, continue with normal streaming for the last chunk
-                            pass
-                        else:
-                            # We still have unprocessed complete chunks, skip this iteration
-                            continue
-
-                    cutoff = get_stream_cutoff_values(update, content)
-                    cutoff += backoff
-
-                    if i == 0:
-                        try:
-                            # Check rate limits before sending first message
-                            can_send = await self.rate_limiter.check_and_wait(str_chat_id, is_group)
-                            if not can_send:
-                                logging.warning(f'Rate limit reached for chat {chat_id}, waiting for next update')
-                                continue
-
-                            if sent_message is not None:
-                                await context.bot.delete_message(
-                                    chat_id=sent_message.chat_id,
-                                    message_id=sent_message.message_id,
-                                )
-                            sent_message = await update.effective_message.reply_text(
-                                message_thread_id=get_forum_thread_id(update),
-                                reply_to_message_id=get_reply_to_message_id(self.config, update),
-                                text=content,
-                            )
-                            self.save_reply(sent_message, update)
-                        except:
-                            continue
-
-                    elif abs(len(content) - len(prev)) > cutoff or tokens != 'not_finished':
-                        prev = content
-
-                        try:
-                            # Instead of waiting, check if we should update the message
-                            should_update = tokens != 'not_finished' or self.rate_limiter.should_update(
-                                str_chat_id, is_group, len(content), len(prev), cutoff
-                            )
-
-                            # If we shouldn't update, skip this iteration
-                            if not should_update:
-                                continue
-
-                            # Otherwise, check rate limits and update if possible
-                            can_send = await self.rate_limiter.check_and_wait(str_chat_id, is_group)
-                            if not can_send:
-                                logging.warning(f'Rate limit reached for chat {chat_id}, skipping update')
-                                continue
-
-                            use_markdown = tokens != 'not_finished'
-                            await edit_message_with_retry(
-                                context,
-                                chat_id,
-                                str(sent_message.message_id),
-                                text=content,
-                                markdown=use_markdown,
-                            )
-
-                        except RetryAfter as e:
-                            backoff += 5
-                            await asyncio.sleep(e.retry_after)
-                            continue
-
-                        except TimedOut:
-                            backoff += 5
-                            await asyncio.sleep(0.5)
-                            continue
-
-                        except Exception:
-                            backoff += 5
-                            continue
-
-                        # Add a small delay between updates
-                        await asyncio.sleep(0.01)
-
-                    i += 1
-                    if tokens != 'not_finished':
-                        total_tokens = int(tokens)
+                total_tokens = await self._process_stream(stream_response, update, context, chat_id)
 
             else:
 
