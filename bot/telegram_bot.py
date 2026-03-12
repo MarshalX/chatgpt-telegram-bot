@@ -80,6 +80,7 @@ class RateLimiter:
         self.config = config
         self.enabled = config.get('enable_rate_limit', True)
         self.group_limit = config.get('group_rate_limit', 20)  # Messages per minute for groups
+        self.reserverd_group_limit = config.get('reserved_group_limit', 2)
         self.private_limit = config.get('private_rate_limit', 1.0)  # Seconds between messages
         self.max_update_frequency = config.get('max_update_frequency', 0.5)  # Maximum updates per second
 
@@ -118,18 +119,16 @@ class RateLimiter:
                 self.group_minute_start[chat_id] = current_time
 
             # Check if we've hit the group message limit
-            if self.group_message_count[chat_id] >= self.group_limit:
+            if self.group_message_count[chat_id] >= self.group_limit - self.reserverd_group_limit:
                 # We've hit the hard limit for this minute
                 return False
 
             # Increment the group message counter
             self.group_message_count[chat_id] += 1
 
-        # For private chats, enforce minimum gap between messages
-        if not is_group:
-            time_since_last_message = current_time - self.last_update_time[chat_id]
-            if time_since_last_message < self.private_limit:
-                await asyncio.sleep(self.private_limit - time_since_last_message)
+        time_since_last_message = current_time - self.last_update_time[chat_id]
+        if time_since_last_message < self.private_limit:
+            await asyncio.sleep(self.private_limit - time_since_last_message)
 
         self.last_update_time[chat_id] = time.time()
         return True
@@ -1045,7 +1044,7 @@ class ChatGPTTelegramBot:
                             # Check rate limits before sending
                             can_send = await self.rate_limiter.check_and_wait(str_chat_id, is_group)
                             if not can_send:
-                                logging.warning(f'Rate limit reached for chat {chat_id}, skipping update')
+                                logging.debug(f'Rate limit reached for chat {chat_id}, skipping update')
                                 continue
 
                             await edit_message_with_retry(
@@ -1058,7 +1057,7 @@ class ChatGPTTelegramBot:
                         # Create a new message for the next chunk (current content)
                         can_send = await self.rate_limiter.check_and_wait(str_chat_id, is_group)
                         if not can_send:
-                            logging.warning(f'Rate limit reached for chat {chat_id}, skipping new message')
+                            logging.debug(f'Rate limit reached for chat {chat_id}, skipping new message')
                             completed_chunks += 1
                             continue
 
@@ -1086,7 +1085,7 @@ class ChatGPTTelegramBot:
                 try:
                     can_send = await self.rate_limiter.check_and_wait(str_chat_id, is_group)
                     if not can_send:
-                        logging.warning(f'Rate limit reached for chat {chat_id}, waiting for next update')
+                        logging.debug(f'Rate limit reached for chat {chat_id}, waiting for next update')
                         continue
 
                     sent_message = await update.effective_message.reply_text(
@@ -1264,7 +1263,7 @@ class ChatGPTTelegramBot:
                             )
                             self.save_reply(sent_msg, update)
                         else:
-                            logging.warning(f'Rate limit reached for chat {chat_id}, retrying')
+                            logging.debug(f'Rate limit reached for chat {chat_id}, retrying')
                             can_send = await self.rate_limiter.check_and_wait(str_chat_id, is_group)
 
                             if can_send:
@@ -1558,7 +1557,7 @@ class ChatGPTTelegramBot:
                             # Check rate limits before sending
                             can_send = await self.rate_limiter.check_and_wait(str_chat_id, is_group)
                             if not can_send:
-                                logging.warning(f'Rate limit reached for chat {chat_id}, skipping chunk')
+                                logging.debug(f'Rate limit reached for chat {chat_id}, skipping chunk')
                                 continue
 
                             if can_send:
@@ -1579,7 +1578,7 @@ class ChatGPTTelegramBot:
                                 # Check rate limits before retrying
                                 can_send = await self.rate_limiter.check_and_wait(str_chat_id, is_group)
                                 if not can_send:
-                                    logging.warning(f'Rate limit reached for chat {chat_id}, skipping chunk')
+                                    logging.debug(f'Rate limit reached for chat {chat_id}, skipping chunk')
                                     continue
 
                                 sent_msg = await update.effective_message.reply_text(
