@@ -136,60 +136,32 @@ class RateLimiter:
 
     def should_update(self, chat_id: str, is_group: bool, current_length: int, prev_length: int, cutoff: int) -> bool:
         """
-        Decide if we should update the message based on rate limiting and content change size
-        This is used for streaming to avoid unnecessary updates
+        Decide if we should update the message based on rate limiting and content change size.
+        This is used for streaming edits only — no sleeping.
         """
-        # If rate limiting is disabled, always update
         if not self.enabled:
             return True
 
         current_time = time.time()
+        elapsed = current_time - self.last_stream_update.get(chat_id, 0)
 
-        # Initialize tracking
-        if chat_id not in self.last_update_time:
-            self.last_update_time[chat_id] = 0
+        # Primary gate: frequency cap
+        if elapsed >= self.max_update_frequency:
+            self.last_stream_update[chat_id] = current_time
             return True
 
-        if chat_id not in self.last_stream_update:
-            self.last_stream_update[chat_id] = 0
+        # Override: significant content change
+        change = abs(current_length - prev_length)
+        threshold = cutoff * (2.0 if is_group else 1.5)
+        if change > threshold:
+            self.last_stream_update[chat_id] = current_time
+            return True
 
-        # Check max update frequency for streaming
-        time_since_last_stream_update = current_time - self.last_stream_update[chat_id]
-        if time_since_last_stream_update < self.max_update_frequency:
-            # If we've updated very recently, only update if significant changes (2x cutoff)
-            significant_change = abs(current_length - prev_length) > (cutoff * 2)
-            if not significant_change:
-                return False
+        # Group near message limit: hard suppress
+        if is_group and self.group_message_count.get(chat_id, 0) >= 0.8 * self.group_limit:
+            return False
 
-        # For group chats, be more conservative with updates
-        if is_group:
-            # Check if we're approaching the group message limit
-            if chat_id in self.group_message_count:
-                # If we're at 80% of the limit, be more selective
-                if self.group_message_count[chat_id] >= 0.8 * self.group_limit:
-                    # Only update if significant changes (2x cutoff)
-                    return abs(current_length - prev_length) > (cutoff * 2)
-
-            # Check time since last update
-            time_since_last_message = current_time - self.last_update_time[chat_id]
-
-            # For groups, prefer fewer updates
-            if time_since_last_message < self.private_limit * 2:
-                # If it's been less than 2x the rate limit,
-                # only update if significant changes
-                return abs(current_length - prev_length) > (cutoff * 1.5)
-
-        # For private chats, be more frequent but still respect limits
-        time_since_last_message = current_time - self.last_update_time[chat_id]
-        if time_since_last_message < self.private_limit:
-            # If it's been less than the rate limit, only update if significant changes
-            return abs(current_length - prev_length) > cutoff
-
-        # If we decide to update, update the last stream update time
-        self.last_stream_update[chat_id] = current_time
-
-        # Otherwise update is fine
-        return True
+        return False
 
 
 class ChatGPTTelegramBot:
@@ -1036,16 +1008,17 @@ class ChatGPTTelegramBot:
 
         await wrap_with_indicator(update, context, _execute, constants.ChatAction.TYPING)
 
-    async def _process_stream(self, stream_response, update: Update, context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> int:
+    async def _process_stream(
+        self, stream_response, update: Update, context: ContextTypes.DEFAULT_TYPE, chat_id: int
+    ) -> int:
         """
         Drives a streaming LLM response to Telegram.
         Returns the final total_tokens count.
         """
-        i = 0
         prev = ''
         sent_message = None
         backoff = 0
-        processed_chunks = []  # Track which chunks have been processed
+        completed_chunks = 0
         is_group = is_group_chat(update)
         str_chat_id = str(chat_id)
         total_tokens = 0
@@ -1053,10 +1026,9 @@ class ChatGPTTelegramBot:
         async for content, tokens in stream_response:
             if is_direct_result(content):
                 await handle_direct_result(self.config, update, content, self.save_reply)
-                i = 0
                 prev = ''
                 sent_message = None
-                processed_chunks = []
+                completed_chunks = 0
                 continue
 
             if len(content.strip()) == 0:
@@ -1068,7 +1040,7 @@ class ChatGPTTelegramBot:
                 content = stream_chunks[-1]
 
                 # Process any new complete chunks
-                for chunk_idx in range(len(processed_chunks), len(stream_chunks) - 1):
+                for chunk_idx in range(completed_chunks, len(stream_chunks) - 1):
                     try:
                         # If we have a message already, edit it with the current complete chunk
                         if sent_message is not None:
@@ -1086,12 +1058,10 @@ class ChatGPTTelegramBot:
                             )
 
                         # Create a new message for the next chunk (current content)
-                        # Check rate limits before sending
                         can_send = await self.rate_limiter.check_and_wait(str_chat_id, is_group)
                         if not can_send:
                             logging.warning(f'Rate limit reached for chat {chat_id}, skipping new message')
-                            # Mark this chunk as processed anyway to avoid creating multiple messages later
-                            processed_chunks.append(chunk_idx)
+                            completed_chunks += 1
                             continue
 
                         sent_message = await update.effective_message.reply_text(
@@ -1099,61 +1069,48 @@ class ChatGPTTelegramBot:
                             text=content if len(content) > 0 else '...',
                         )
                         self.save_reply(sent_message, update)
-                        processed_chunks.append(chunk_idx)
+                        completed_chunks += 1
                     except Exception as e:
                         logging.error(f'Error handling chunk: {e}')
                         pass
 
-                # If we've processed all complete chunks, continue streaming with the last chunk
-                if len(processed_chunks) == len(stream_chunks) - 1:
-                    # We've handled all complete chunks, continue with normal streaming for the last chunk
+                # If we've processed all complete chunks, continue with normal streaming for the last chunk
+                if completed_chunks == len(stream_chunks) - 1:
                     pass
                 else:
-                    # We still have unprocessed complete chunks, skip this iteration
+                    # Still have unprocessed complete chunks, skip this iteration
                     continue
 
             cutoff = get_stream_cutoff_values(update, content)
             cutoff += backoff
 
-            if i == 0:
+            if sent_message is None:
                 try:
-                    # Check rate limits before sending first message
                     can_send = await self.rate_limiter.check_and_wait(str_chat_id, is_group)
                     if not can_send:
                         logging.warning(f'Rate limit reached for chat {chat_id}, waiting for next update')
                         continue
 
-                    if sent_message is not None:
-                        await context.bot.delete_message(
-                            chat_id=sent_message.chat_id,
-                            message_id=sent_message.message_id,
-                        )
                     sent_message = await update.effective_message.reply_text(
                         message_thread_id=get_forum_thread_id(update),
                         reply_to_message_id=get_reply_to_message_id(self.config, update),
                         text=content,
                     )
                     self.save_reply(sent_message, update)
-                except:
+                except Exception as e:
+                    logging.warning(f'Failed to send first message in chat {chat_id}: {e}')
                     continue
 
             elif abs(len(content) - len(prev)) > cutoff or tokens != 'not_finished':
+                prev_len = len(prev)
                 prev = content
 
                 try:
-                    # Instead of waiting, check if we should update the message
                     should_update = tokens != 'not_finished' or self.rate_limiter.should_update(
-                        str_chat_id, is_group, len(content), len(prev), cutoff
+                        str_chat_id, is_group, len(content), prev_len, cutoff
                     )
 
-                    # If we shouldn't update, skip this iteration
                     if not should_update:
-                        continue
-
-                    # Otherwise, check rate limits and update if possible
-                    can_send = await self.rate_limiter.check_and_wait(str_chat_id, is_group)
-                    if not can_send:
-                        logging.warning(f'Rate limit reached for chat {chat_id}, skipping update')
                         continue
 
                     use_markdown = tokens != 'not_finished'
@@ -1179,10 +1136,8 @@ class ChatGPTTelegramBot:
                     backoff += 5
                     continue
 
-                # Add a small delay between updates
                 await asyncio.sleep(0.01)
 
-            i += 1
             if tokens != 'not_finished':
                 total_tokens = int(tokens)
 
