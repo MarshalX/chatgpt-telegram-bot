@@ -1136,8 +1136,6 @@ class ChatGPTTelegramBot:
                     backoff += 5
                     continue
 
-                await asyncio.sleep(0.01)
-
             if tokens != 'not_finished':
                 total_tokens = int(tokens)
 
@@ -1268,9 +1266,7 @@ class ChatGPTTelegramBot:
                             )
                             self.save_reply(sent_msg, update)
                         else:
-                            # If rate limit reached, try without markdown
-                            logging.warning(f'Rate limit reached for chat {chat_id}, trying again in 1 second')
-                            await asyncio.sleep(1)
+                            logging.warning(f'Rate limit reached for chat {chat_id}, retrying')
                             can_send = await self.rate_limiter.check_and_wait(str_chat_id, is_group)
 
                             if can_send:
@@ -1564,17 +1560,8 @@ class ChatGPTTelegramBot:
                             # Check rate limits before sending
                             can_send = await self.rate_limiter.check_and_wait(str_chat_id, is_group)
                             if not can_send:
-                                # If rate limit reached, add a delay and notify
-                                logging.warning(f'Rate limit reached for chat {chat_id}, waiting...')
-                                if index > 0:
-                                    # Only add this notification for subsequent chunks
-                                    await update.effective_message.reply_text(
-                                        message_thread_id=get_forum_thread_id(update),
-                                        text='⚠️ Rate limit reached. Remaining response will be sent shortly.',
-                                    )
-                                await asyncio.sleep(60)  # Wait for a minute
-                                # Try again after waiting
-                                can_send = await self.rate_limiter.check_and_wait(str_chat_id, is_group)
+                                logging.warning(f'Rate limit reached for chat {chat_id}, skipping chunk')
+                                continue
 
                             if can_send:
                                 sent_msg = await update.effective_message.reply_text(
@@ -1797,9 +1784,6 @@ class ChatGPTTelegramBot:
                             backoff += 5
                             continue
 
-                        # Add delay between updates to respect rate limits
-                        await asyncio.sleep(0.1)
-
                     i += 1
                     if tokens != 'not_finished':
                         total_tokens = int(tokens)
@@ -1850,9 +1834,7 @@ class ChatGPTTelegramBot:
                         is_inline=True,
                     )
                 else:
-                    logging.warning(f'Rate limit reached for user {user_id}, waiting to send final response')
-                    await asyncio.sleep(1)  # Wait a bit
-                    # Try one more time
+                    logging.warning(f'Rate limit reached for user {user_id}, retrying final response')
                     can_send = await self.rate_limiter.check_and_wait(str_user_id, False)
                     if can_send:
                         await edit_message_with_retry(
