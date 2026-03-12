@@ -321,10 +321,16 @@ class OpenAIHelper:
         :return: The answer from the model and the number of tokens used
         """
         plugins_used = []
+        pending_direct_results = []
         response = await self.__common_get_chat_response(chat_id, query, image=image, user_id=user_id)
         if self.config['enable_functions']:
-            response, _, plugins_used = await self.__handle_function_call(chat_id, response, user_id=user_id)
+            response, _, plugins_used, pending_direct_results = await self.__handle_function_call(
+                chat_id, response, user_id=user_id
+            )
             if is_direct_result(response):
+                if pending_direct_results:
+                    combined = pending_direct_results + (response if isinstance(response, list) else [response])
+                    return combined, 0
                 return response, 0
 
         answer = ''
@@ -377,6 +383,12 @@ class OpenAIHelper:
         elif show_plugins_used:
             answer += f'\n\n---\n🔌 {", ".join(plugin_names)}'
 
+        if pending_direct_results:
+            result = pending_direct_results[:]
+            if answer.strip():
+                result.append({'direct_result': {'kind': 'text', 'text': answer}})
+            return result, response.usage.total_tokens
+
         return answer, response.usage.total_tokens
 
     async def get_chat_response_stream(
@@ -393,9 +405,11 @@ class OpenAIHelper:
         plugins_used = []
         response = await self.__common_get_chat_response(chat_id, query, stream=True, image=image, user_id=user_id)
         if self.config['enable_functions']:
-            response, response_chunks, plugins_used = await self.__handle_function_call(
+            response, response_chunks, plugins_used, pending_direct_results = await self.__handle_function_call(
                 chat_id, response, stream=True, user_id=user_id
             )
+            for dr in pending_direct_results:
+                yield dr, '0'
             if is_direct_result(response):
                 yield response, '0'
                 return
@@ -607,10 +621,19 @@ class OpenAIHelper:
         return direct_responses, plugins_used
 
     async def __handle_function_call(
-        self, chat_id, response, stream=False, times=0, plugins_used=None, user_id: Optional[str] = None
+        self,
+        chat_id,
+        response,
+        stream=False,
+        times=0,
+        plugins_used=None,
+        user_id: Optional[str] = None,
+        pending_direct_results=None,
     ):
         if plugins_used is None:
             plugins_used = []
+        if pending_direct_results is None:
+            pending_direct_results = []
 
         final_tool_calls = {}
         response_chunks = []
@@ -645,7 +668,7 @@ class OpenAIHelper:
                 final_tool_calls[index] = tool_call
 
         if not final_tool_calls:
-            return response, response_chunks, plugins_used
+            return response, response_chunks, plugins_used, pending_direct_results
 
         if stream:
             usage = None
@@ -670,7 +693,7 @@ class OpenAIHelper:
             chat_id, final_tool_calls, times, cost, plugins_used
         )
         if direct_responses:
-            return direct_responses, response_chunks, plugins_used
+            pending_direct_results.extend(direct_responses)
 
         response = await self.client.chat.completions.create(
             model=self.config['model'],
@@ -682,7 +705,9 @@ class OpenAIHelper:
             stream_options={'include_usage': True} if stream else None,
             user=user_id,
         )
-        return await self.__handle_function_call(chat_id, response, stream, times + 1, plugins_used, user_id)
+        return await self.__handle_function_call(
+            chat_id, response, stream, times + 1, plugins_used, user_id, pending_direct_results
+        )
 
     async def generate_image(
         self,
@@ -816,14 +841,11 @@ class OpenAIHelper:
             system_content = (
                 'You generate conversation titles. '
                 'Return ONLY a title on the first line. '
-                'Max 3 words. No punctuation. No explanations.'
-                + emoji_instruction
+                'Max 3 words. No punctuation. No explanations.' + emoji_instruction
             )
         else:
             system_content = (
-                'You generate conversation titles. '
-                'Return ONLY a title. '
-                'Max 3 words. No punctuation. No explanations.'
+                'You generate conversation titles. Return ONLY a title. Max 3 words. No punctuation. No explanations.'
             )
 
         messages = [

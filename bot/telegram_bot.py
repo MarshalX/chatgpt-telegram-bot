@@ -1148,7 +1148,12 @@ class ChatGPTTelegramBot:
 
                 async for content, tokens in stream_response:
                     if is_direct_result(content):
-                        return await handle_direct_result(self.config, update, content, self.save_reply)
+                        await handle_direct_result(self.config, update, content, self.save_reply)
+                        i = 0
+                        prev = ''
+                        sent_message = None
+                        processed_chunks = []
+                        continue
 
                     if len(content.strip()) == 0:
                         continue
@@ -1579,7 +1584,12 @@ class ChatGPTTelegramBot:
 
                 async for content, tokens in stream_response:
                     if is_direct_result(content):
-                        return await handle_direct_result(self.config, update, content, self.save_reply)
+                        await handle_direct_result(self.config, update, content, self.save_reply)
+                        i = 0
+                        prev = ''
+                        sent_message = None
+                        processed_chunks = []
+                        continue
 
                     if len(content.strip()) == 0:
                         continue

@@ -462,6 +462,11 @@ async def __handle_direct_result(config, update: Update, response: any, save_rep
             first_name=result['first_name'],
             last_name=result['last_name'],
         )
+    elif kind == 'text':
+        sent_msg = await update.effective_message.reply_text(
+            **common_args,
+            text=result['text'],
+        )
 
     if save_reply and sent_msg:
         save_reply(sent_msg, update)
