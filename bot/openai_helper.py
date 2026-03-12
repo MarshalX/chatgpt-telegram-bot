@@ -324,9 +324,39 @@ class OpenAIHelper:
         pending_direct_results = []
         response = await self.__common_get_chat_response(chat_id, query, image=image, user_id=user_id)
         if self.config['enable_functions']:
-            response, _, plugins_used, pending_direct_results = await self.__handle_function_call(
-                chat_id, response, user_id=user_id
-            )
+            times = 0
+            while True:
+                tool_calls = (
+                    response.choices[0].message.tool_calls
+                    if response.choices and response.choices[0].message.tool_calls
+                    else []
+                )
+                final_tool_calls = {index: tc for index, tc in enumerate(tool_calls)}
+                if not final_tool_calls:
+                    break
+
+                usage = response.usage
+                cost = 0
+                if usage:
+                    cost = get_model_cost(self.config['model'], usage)
+                    self.add_cost(chat_id, cost)
+                    self.set_tokens(chat_id, usage.total_tokens)
+
+                direct_responses, plugins_used = await self.__call_functions_in_parallel(
+                    chat_id, final_tool_calls, times, cost, plugins_used
+                )
+                pending_direct_results.extend(direct_responses)
+
+                response = await self.client.chat.completions.create(
+                    model=self.config['model'],
+                    messages=self.conversations[chat_id],
+                    tools=self.plugin_manager.get_functions_specs(),
+                    tool_choice='auto' if times < self.config['functions_max_consecutive_calls'] else 'none',
+                    parallel_tool_calls=True,
+                    user=user_id,
+                )
+                times += 1
+
             if is_direct_result(response):
                 if pending_direct_results:
                     combined = pending_direct_results + (response if isinstance(response, list) else [response])
@@ -403,40 +433,88 @@ class OpenAIHelper:
         :return: The answer from the model and the number of tokens used, or 'not_finished'
         """
         plugins_used = []
+        enable_functions = self.config['enable_functions']
         response = await self.__common_get_chat_response(chat_id, query, stream=True, image=image, user_id=user_id)
-        if self.config['enable_functions']:
-            response, response_chunks, plugins_used, pending_direct_results = await self.__handle_function_call(
-                chat_id, response, stream=True, user_id=user_id
-            )
-            for dr in pending_direct_results:
-                yield dr, '0'
-            if is_direct_result(response):
-                yield response, '0'
-                return
 
+        times = 0
         answer = ''
         last_chunk = None
-        for chunk in response_chunks:
-            last_chunk = chunk
-            if len(chunk.choices) == 0:
-                continue
-            delta = chunk.choices[0].delta
-            if delta.content:
-                answer += delta.content
-                yield answer, 'not_finished'
+
+        while True:
+            answer = ''
+            final_tool_calls = {}
+            last_chunk = None
+
+            async for chunk in response:
+                last_chunk = chunk
+                if not chunk.choices:
+                    break
+
+                first_choice = chunk.choices[0]
+                delta = first_choice.delta
+
+                if delta.content:
+                    answer += delta.content
+                    yield answer, 'not_finished'
+
+                if not enable_functions:
+                    continue
+
+                if delta.tool_calls:
+                    for tc in delta.tool_calls:
+                        idx = tc.index
+                        if idx not in final_tool_calls:
+                            final_tool_calls[idx] = tc
+                        else:
+                            final_tool_calls[idx].function.arguments += tc.function.arguments
+
+                if first_choice.finish_reason == 'tool_calls':
+                    async for remaining_chunk in response:
+                        last_chunk = remaining_chunk
+                        if remaining_chunk.usage:
+                            break
+                    break
+
+            if not final_tool_calls:
+                break
+
+            usage = last_chunk.usage if (last_chunk and last_chunk.usage) else None
+            cost = 0
+            if usage:
+                cost = get_model_cost(self.config['model'], usage)
+                self.add_cost(chat_id, cost)
+                self.set_tokens(chat_id, usage.total_tokens)
+
+            direct_responses, plugins_used = await self.__call_functions_in_parallel(
+                chat_id, final_tool_calls, times, cost, plugins_used
+            )
+            for dr in direct_responses:
+                yield dr, '0'
+
+            times += 1
+            response = await self.client.chat.completions.create(
+                model=self.config['model'],
+                messages=self.conversations[chat_id],
+                tools=self.plugin_manager.get_functions_specs(),
+                tool_choice='auto' if times < self.config['functions_max_consecutive_calls'] else 'none',
+                parallel_tool_calls=True,
+                stream=True,
+                stream_options={'include_usage': True},
+                user=user_id,
+            )
 
         answer = answer.strip()
         await self.__add_to_history(chat_id, role='assistant', content=answer)
 
-        usage = last_chunk.usage
+        usage = last_chunk.usage if (last_chunk and last_chunk.usage) else None
 
         show_plugins_used = len(plugins_used) > 0 and self.config['show_plugins_used']
         plugins_used_counter = Counter(self.plugin_manager.get_plugin_source_name(plugin) for plugin in plugins_used)
         plugin_names = [f'{name} x{count}' if count > 1 else name for name, count in plugins_used_counter.items()]
         if self.config['show_usage']:
-            cost = get_model_cost(self.config['model'], usage)
+            cost = get_model_cost(self.config['model'], usage) if usage else 0
             self.add_cost(chat_id, cost)
-            self.set_tokens(chat_id, usage.total_tokens)
+            self.set_tokens(chat_id, usage.total_tokens if usage else 0)
 
             price = get_formatted_price(self.get_cost(chat_id))
             answer += f'\n\n---\nID: {chat_id[-2:]} {price}'
@@ -446,7 +524,7 @@ class OpenAIHelper:
         elif show_plugins_used:
             answer += f'\n\n---\n🔌 {", ".join(plugin_names)}'
 
-        yield answer, usage.total_tokens
+        yield answer, usage.total_tokens if usage else 0
 
     def get_conversation_lock(self, chat_id: str) -> asyncio.Lock:
         """
@@ -619,95 +697,6 @@ class OpenAIHelper:
             )
 
         return direct_responses, plugins_used
-
-    async def __handle_function_call(
-        self,
-        chat_id,
-        response,
-        stream=False,
-        times=0,
-        plugins_used=None,
-        user_id: Optional[str] = None,
-        pending_direct_results=None,
-    ):
-        if plugins_used is None:
-            plugins_used = []
-        if pending_direct_results is None:
-            pending_direct_results = []
-
-        final_tool_calls = {}
-        response_chunks = []
-
-        if stream:
-            async for chunk in response:
-                response_chunks.append(chunk)
-                if not chunk.choices:
-                    break
-
-                first_choice = chunk.choices[0]
-                if not first_choice.delta.tool_calls:
-                    continue
-
-                for tool_call in first_choice.delta.tool_calls:
-                    index = tool_call.index
-
-                    if index not in final_tool_calls:
-                        final_tool_calls[index] = tool_call
-
-                    final_tool_calls[index].function.arguments += tool_call.function.arguments
-
-                if first_choice.finish_reason == 'tool_calls':
-                    break
-        else:
-            tool_calls = (
-                response.choices[0].message.tool_calls
-                if response.choices and response.choices[0].message.tool_calls
-                else []
-            )
-            for index, tool_call in enumerate(tool_calls):
-                final_tool_calls[index] = tool_call
-
-        if not final_tool_calls:
-            return response, response_chunks, plugins_used, pending_direct_results
-
-        if stream:
-            usage = None
-            # this is a chained function call
-            # we do not need this response anymore except for finding usage
-            async for chunk in response:
-                response_chunks.append(chunk)
-                if chunk.usage:
-                    usage = chunk.usage
-        else:
-            usage = response.usage
-
-        cost = 0
-        if usage:
-            # for chained function calls we process cost here (intermediate calls)
-            # otherwise it will be calculated outside in the response handler (final or the only one call)
-            cost = get_model_cost(self.config['model'], usage)
-            self.add_cost(chat_id, cost)
-            self.set_tokens(chat_id, usage.total_tokens)
-
-        direct_responses, plugins_used = await self.__call_functions_in_parallel(
-            chat_id, final_tool_calls, times, cost, plugins_used
-        )
-        if direct_responses:
-            pending_direct_results.extend(direct_responses)
-
-        response = await self.client.chat.completions.create(
-            model=self.config['model'],
-            messages=self.conversations[chat_id],
-            tools=self.plugin_manager.get_functions_specs(),
-            tool_choice='auto' if times < self.config['functions_max_consecutive_calls'] else 'none',
-            parallel_tool_calls=True,
-            stream=stream,
-            stream_options={'include_usage': True} if stream else None,
-            user=user_id,
-        )
-        return await self.__handle_function_call(
-            chat_id, response, stream, times + 1, plugins_used, user_id, pending_direct_results
-        )
 
     async def generate_image(
         self,
