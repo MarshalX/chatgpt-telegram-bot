@@ -1329,88 +1329,14 @@ class ChatGPTTelegramBot:
         if not update.message_reaction.new_reaction:
             return
 
-        emoji_to_message = {
-            '👍': 'Yes.',
-            '👎': 'No.',
-            '❤️': 'I really like this.',
-            '🔥': 'This is awesome!',
-            '🥰': 'So sweet, thanks!',
-            '👏': 'Great idea!',
-            '😁': 'Glad to hear that!',
-            '🤔': 'Let me think...',
-            '🤯': 'Wow, that blew my mind!',
-            '😱': "That's shocking!",
-            '🤬': 'This is outrageous!',
-            '😢': "I'm sorry to hear that.",
-            '🎉': 'Congratulations!',
-            '🤩': 'Wow, impressive!',
-            '🤮': "That's disgusting.",
-            '💩': "That's really bad.",
-            '🙏': 'Please, go on.',
-            '👌': 'I agree, perfect.',
-            '🕊': 'Peace and calm.',
-            '🤡': 'Is this a joke?',
-            '🥱': "I'm bored...",
-            '🥴': "I don't quite understand.",
-            '😍': "I'm thrilled!",
-            '🐳': 'Interesting, tell me more.',
-            '❤️‍🔥': 'True passion!',
-            '🌚': 'Hmm, mysterious.',
-            '🌭': 'Odd choice, but okay.',
-            '💯': 'Totally support that.',
-            '🤣': "Haha, that's funny!",
-            '⚡': "That's very energetic!",
-            '🍌': 'Unexpected!',
-            '🏆': 'Great achievement!',
-            '💔': "That's sad.",
-            '🤨': 'That seems doubtful to me.',
-            '😐': 'Neutral stance.',
-            '🍓': 'I love it.',
-            '🍾': 'Time to celebrate!',
-            '💋': 'Sending love!',
-            '🖕': "That's rude!",
-            '😈': "Alright, let's play naughty.",
-            '😴': 'I need to rest.',
-            '😭': 'Very touching.',
-            '🤓': 'Interesting fact, thanks!',
-            '👻': 'Was there a ghost here?',
-            '👨‍💻': "Let's code!",
-            '👀': "I'm watching closely.",
-            '🎃': 'Happy Halloween!',
-            '🙈': "I didn't see that.",
-            '😇': 'Good idea!',
-            '😨': "That's scary.",
-            '🤝': 'Agreed.',
-            '✍': 'Noting it down.',
-            '🤗': 'Hugs!',
-            '🫡': 'Order received!',
-            '🎅': 'Merry Christmas!',
-            '🎄': 'Festive mood!',
-            '☃': 'Winter wonderland.',
-            '💅': 'Stylish indeed.',
-            '🤪': 'A bit crazy?',
-            '🗿': 'No emotions...',
-            '🆒': 'Very cool!',
-            '💘': 'In love!',
-            '🙉': "I don't want to hear that.",
-            '🦄': 'Something magical!',
-            '😘': 'Kisses!',
-            '💊': 'Need some help?',
-            '🙊': "Won't say a thing.",
-            '😎': 'Cool and confident.',
-            '👾': 'Exciting!',
-            '🤷‍♂️': "Don't know what to say.",
-            '🤷': 'No opinion yet.',
-            '🤷‍♀️': "I'm not sure.",
-            '😡': 'This annoys me.',
-        }
-
-        new_reactions = {r.emoji for r in update.message_reaction.new_reaction if isinstance(r, ReactionTypeEmoji)}
-        text = ''.join(emoji_to_message.get(emoji, '') for emoji in new_reactions)
-        if not text.strip():
+        new_reactions = [r.emoji for r in update.message_reaction.new_reaction if isinstance(r, ReactionTypeEmoji)]
+        if not new_reactions:
             return
 
-        logging.info(f'New reaction received from user {update.effective_sender.name} (TEXT: {text})')
+        emojis = ' '.join(new_reactions)
+        text = f'[reaction: {emojis}]'
+
+        logging.info(f'New reaction received from user {update.effective_sender.name} (emojis: {emojis})')
 
         new_update = Update(
             update_id=update.update_id,
