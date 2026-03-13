@@ -1354,7 +1354,7 @@ class ChatGPTTelegramBot:
             return
 
         emojis = ' '.join(new_reactions)
-        text = f'[reaction: {emojis}]'
+        text = f'[The user reacted to your message with: {emojis}]'
 
         logging.info(f'New reaction received from user {update.effective_sender.name} (emojis: {emojis})')
 
