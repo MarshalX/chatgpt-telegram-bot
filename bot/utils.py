@@ -402,28 +402,29 @@ async def __handle_direct_result(config, update: Update, response: any, save_rep
         'message_thread_id': get_forum_thread_id(update),
         'reply_to_message_id': get_reply_to_message_id(config, update),
     }
+    common_args_text = {**common_args, 'parse_mode': constants.ParseMode.HTML}
 
     sent_msg = None
     if kind == 'photo':
         sent_msg = await update.effective_message.reply_photo(
-            **common_args, photo=result['photo'], caption=result.get('caption')
+            **common_args_text, photo=result['photo'], caption=result.get('caption')
         )
     elif kind == 'album':
         media = [telegram.InputMediaPhoto(media=photo) for photo in result['photos']]
         if 'caption' in result:
             media[0] = telegram.InputMediaPhoto(media=result['photos'][0], caption=result['caption'])
 
-        sent_msgs = await update.effective_message.reply_media_group(**common_args, media=media)
+        sent_msgs = await update.effective_message.reply_media_group(**common_args_text, media=media)
         sent_msg = sent_msgs[-1] if sent_msgs else None
     elif kind in {'gif', 'file', 'document'}:
         sent_msg = await update.effective_message.reply_document(
-            **common_args, document=result['document'], caption=result.get('caption')
+            **common_args_text, document=result['document'], caption=result.get('caption')
         )
     elif kind == 'reaction':
         await update.effective_message.set_reaction(reaction=result['reaction'])
     elif kind == 'voice':
         sent_msg = await update.effective_message.reply_voice(
-            **common_args, voice=result['voice'], caption=result.get('caption')
+            **common_args_text, voice=result['voice'], caption=result.get('caption')
         )
     elif kind == 'video_note':
         sent_msg = await update.effective_message.reply_video_note(
@@ -432,11 +433,11 @@ async def __handle_direct_result(config, update: Update, response: any, save_rep
         )
     elif kind == 'video':
         sent_msg = await update.effective_message.reply_video(
-            **common_args, video=result['video'], caption=result.get('caption')
+            **common_args_text, video=result['video'], caption=result.get('caption')
         )
     elif kind == 'audio':
         sent_msg = await update.effective_message.reply_audio(
-            **common_args, audio=result['audio'], caption=result.get('caption')
+            **common_args_text, audio=result['audio'], caption=result.get('caption')
         )
     elif kind == 'dice':
         sent_msg = await update.effective_message.reply_dice(**common_args, emoji=result['emoji'])
@@ -471,7 +472,7 @@ async def __handle_direct_result(config, update: Update, response: any, save_rep
         )
     elif kind == 'text':
         sent_msg = await update.effective_message.reply_text(
-            **common_args,
+            **common_args_text,
             text=result['text'],
         )
 
