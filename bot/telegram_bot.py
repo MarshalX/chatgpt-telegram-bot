@@ -1051,6 +1051,9 @@ class ChatGPTTelegramBot:
             if len(content.strip()) == 0:
                 continue
 
+            if content.lstrip().startswith('__SILENT__'):
+                break
+
             stream_chunks = split_into_chunks(content)
             if len(stream_chunks) > 1:
                 # Keep track of the last chunk as current content
@@ -1490,6 +1493,9 @@ class ChatGPTTelegramBot:
 
                     if is_direct_result(response):
                         return await handle_direct_result(self.config, update, response, self.save_reply)
+
+                    if isinstance(response, str) and response.lstrip().startswith('__SILENT__'):
+                        return
 
                     # Split into chunks of 4096 characters (Telegram's message limit)
                     chunks = split_into_chunks(response)

@@ -480,6 +480,45 @@ async def __handle_direct_result(config, update: Update, response: any, save_rep
         save_reply(sent_msg, update)
 
 
+def describe_direct_result(dr: dict) -> str:
+    """Return a specific, informative tool-result string for a direct_result payload."""
+    payload = dr.get('direct_result', {})
+    kind = payload.get('kind', '')
+    if kind == 'reaction':
+        return f"Reaction {payload.get('reaction', '')} set on the user's message."
+    if kind == 'photo':
+        return 'Photo sent to the user.'
+    if kind == 'album':
+        n = len(payload.get('photos', []))
+        return f'Album of {n} photo(s) sent to the user.'
+    if kind == 'dice':
+        return f'Animated {payload.get("emoji", "🎲")} dice sent to the user.'
+    if kind == 'poll':
+        q = payload.get('question', '')
+        opts = payload.get('options', [])
+        return f'Poll "{q}" with {len(opts)} options sent to the user.'
+    if kind == 'document':
+        return 'Document sent to the user.'
+    if kind == 'voice':
+        return 'Voice message sent to the user.'
+    if kind == 'video':
+        return 'Video sent to the user.'
+    if kind == 'video_note':
+        return 'Round video note sent to the user.'
+    if kind == 'audio':
+        return 'Audio track sent to the user.'
+    if kind == 'location':
+        return f'Location ({payload.get("latitude")}, {payload.get("longitude")}) sent to the user.'
+    if kind == 'venue':
+        return f'Venue "{payload.get("title", "")}" at {payload.get("address", "")} sent to the user.'
+    if kind == 'contact':
+        name = f'{payload.get("first_name", "")} {payload.get("last_name", "")}'.strip()
+        return f'Contact card for {name} sent to the user.'
+    if kind == 'text':
+        return 'Text message sent to the user.'
+    return 'Content sent to the user.'
+
+
 # Function to encode the image
 def encode_image(fileobj):
     image = base64.b64encode(fileobj.getvalue()).decode('utf-8')

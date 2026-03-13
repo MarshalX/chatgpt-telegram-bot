@@ -19,7 +19,7 @@ from openai.types.chat import ChatCompletionMessageParam
 from openai.types.images_response import Usage
 from plugin_manager import PluginManager
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
-from utils import DirectResultError, is_direct_result
+from utils import DirectResultError, describe_direct_result, is_direct_result
 
 if TYPE_CHECKING:
     from openai.types.chat import ChatCompletionMessageToolCall
@@ -345,6 +345,13 @@ class OpenAIHelper:
                 direct_responses, plugins_used = await self.__call_functions_in_parallel(
                     chat_id, final_tool_calls, times, cost, plugins_used
                 )
+                for dr, dr_tool_call in direct_responses:
+                    await self.__add_tool_call_result_to_history(
+                        chat_id=chat_id,
+                        tool_call_id=dr_tool_call.id,
+                        tool_name=dr_tool_call.function.name,
+                        result=json.dumps({'result': describe_direct_result(dr)}),
+                    )
                 pending_direct_results.extend(direct_responses)
 
                 response = await self.client.chat.completions.create(
@@ -495,7 +502,7 @@ class OpenAIHelper:
                         chat_id=chat_id,
                         tool_call_id=dr_tool_call.id,
                         tool_name=dr_tool_call.function.name,
-                        result=json.dumps({'result': 'Done, the content has been sent to the user.'}),
+                        result=json.dumps({'result': describe_direct_result(dr)}),
                     )
                 except DirectResultError as e:
                     logging.warning(f'Direct result send failed: {e}')
