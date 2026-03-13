@@ -1367,7 +1367,7 @@ class ChatGPTTelegramBot:
                 from_user=update.message_reaction.user,
                 text=text,
                 is_topic_message=getattr(update.message_reaction, 'is_topic_message', None),
-                message_thread_id=update.message_reaction.message_thread_id,
+                message_thread_id=getattr(update.message_reaction, 'message_thread_id', None),
                 reply_to_message=Message(  # required for context id resolving
                     message_id=update.message_reaction.message_id,
                     date=update.message_reaction.date,
