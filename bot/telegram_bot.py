@@ -57,6 +57,7 @@ from utils import (
     get_remaining_budget,
     get_reply_to_message_id,
     get_stream_cutoff_values,
+    DirectResultError,
     handle_direct_result,
     has_image_gen_permission,
     is_allowed,
@@ -1020,9 +1021,28 @@ class ChatGPTTelegramBot:
         str_chat_id = str(chat_id)
         total_tokens = 0
 
-        async for content, tokens in stream_response:
+        stream_iter = stream_response.__aiter__()
+        pending: tuple | None = None
+
+        while True:
+            try:
+                if pending is not None:
+                    content, tokens = pending
+                    pending = None
+                else:
+                    content, tokens = await stream_iter.__anext__()
+            except StopAsyncIteration:
+                break
+
             if is_direct_result(content):
-                await handle_direct_result(self.config, update, content, self.save_reply)
+                try:
+                    await handle_direct_result(self.config, update, content, self.save_reply)
+                except DirectResultError as e:
+                    logging.warning(f'Direct result failed, passing error back to LLM: {e}')
+                    try:
+                        pending = await stream_iter.athrow(e)
+                    except StopAsyncIteration:
+                        break
                 prev = ''
                 sent_message = None
                 completed_chunks = 0

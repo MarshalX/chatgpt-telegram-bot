@@ -19,7 +19,7 @@ from openai.types.chat import ChatCompletionMessageParam
 from openai.types.images_response import Usage
 from plugin_manager import PluginManager
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
-from utils import is_direct_result
+from utils import DirectResultError, is_direct_result
 
 if TYPE_CHECKING:
     from openai.types.chat import ChatCompletionMessageToolCall
@@ -488,8 +488,23 @@ class OpenAIHelper:
             direct_responses, plugins_used = await self.__call_functions_in_parallel(
                 chat_id, final_tool_calls, times, cost, plugins_used
             )
-            for dr in direct_responses:
-                yield dr, '0'
+            for dr, dr_tool_call in direct_responses:
+                try:
+                    yield dr, '0'
+                    await self.__add_tool_call_result_to_history(
+                        chat_id=chat_id,
+                        tool_call_id=dr_tool_call.id,
+                        tool_name=dr_tool_call.function.name,
+                        result=json.dumps({'result': 'Done, the content has been sent to the user.'}),
+                    )
+                except DirectResultError as e:
+                    logging.warning(f'Direct result send failed: {e}')
+                    await self.__add_tool_call_result_to_history(
+                        chat_id=chat_id,
+                        tool_call_id=dr_tool_call.id,
+                        tool_name=dr_tool_call.function.name,
+                        result=json.dumps({'result': f'Failed to deliver content to user: {e}'}),
+                    )
 
             times += 1
             response = await self.client.chat.completions.create(
@@ -682,13 +697,7 @@ class OpenAIHelper:
             if is_direct_result(function_response):
                 logging.info(f'[FUNC CALL][{times}] "{function_name}" returned a direct result')
                 await self.__add_tool_call_to_history(chat_id, tool_call)
-                await self.__add_tool_call_result_to_history(
-                    chat_id=chat_id,
-                    tool_call_id=tool_call.id,
-                    tool_name=function_name,
-                    result=json.dumps({'result': 'Done, the content has been sent to the user.'}),
-                )
-                direct_responses.append(function_response)
+                direct_responses.append((function_response, tool_call))
                 continue
 
             await self.__add_tool_call_to_history(chat_id, tool_call)

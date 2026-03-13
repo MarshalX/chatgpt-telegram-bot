@@ -373,12 +373,19 @@ def is_direct_result(response: any) -> bool:
         return response.get('direct_result', False)
 
 
+class DirectResultError(Exception):
+    pass
+
+
 async def handle_direct_result(config, update: Update, response: any, save_reply: Optional[Callable] = None):
-    if isinstance(response, list):
-        for resp in response[:10]:  # limit to first 10 direct results to avoid flooding
-            await __handle_direct_result(config, update, resp, save_reply)
-    else:
-        await __handle_direct_result(config, update, response, save_reply)
+    try:
+        if isinstance(response, list):
+            for resp in response[:10]:  # limit to first 10 direct results to avoid flooding
+                await __handle_direct_result(config, update, resp, save_reply)
+        else:
+            await __handle_direct_result(config, update, response, save_reply)
+    except Exception as e:
+        raise DirectResultError(str(e)) from e
 
 
 async def __handle_direct_result(config, update: Update, response: any, save_reply: Optional[Callable] = None):
