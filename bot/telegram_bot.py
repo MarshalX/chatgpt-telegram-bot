@@ -1054,6 +1054,13 @@ class ChatGPTTelegramBot:
             if content.lstrip().startswith('__SILENT__'):
                 break
 
+            # If no message has been sent yet, hold off until we have enough content
+            # to rule out the __SILENT__ sentinel (avoids sending a partial "__" fragment).
+            if sent_message is None:
+                stripped = content.lstrip()
+                if '__SILENT__'.startswith(stripped) and len(stripped) < len('__SILENT__'):
+                    continue
+
             stream_chunks = split_into_chunks(content)
             if len(stream_chunks) > 1:
                 # Keep track of the last chunk as current content
