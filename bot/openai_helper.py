@@ -60,6 +60,7 @@ GPT_41_MODELS = (
     'gpt-4.1-nano-2025-04-14',
 )
 GPT_5_MODELS = (
+    'gpt-5.4',
     'gpt-5.2',
     'gpt-5.2-2025-12-11',
     'gpt-5.2-chat-latest',
@@ -154,6 +155,7 @@ _MODELS_COST = {
     'gpt-5.1': (1.25, 0.125, 10),
     'gpt-5.1-codex': (1.25, 0.125, 10),
     'gpt-5.1-codex-mini': (0.25, 0.025, 2),
+    'gpt-5.4': (2.5, 0.25, 15),
     'gpt-5.2': (1.75, 0.175, 14),
     'gpt-5.2-codex': (1.75, 0.175, 14),
     'gpt-5.2-pro': (21, 0, 168),
@@ -631,7 +633,7 @@ class OpenAIHelper:
                 'user': user_id,
             }
 
-            if common_args['model'] in GPT_5_MODELS:
+            if common_args['model'] in GPT_5_MODELS and common_args['model'] != 'gpt-5.4':
                 common_args.update(
                     {
                         'reasoning_effort': self.config['reasoning_effort'],
@@ -1007,6 +1009,8 @@ class OpenAIHelper:
             return base * 31  # 128K
         if self.config['model'] in GPT_41_MODELS:
             return base * 240  # 1M
+        if self.config['model'] == 'gpt-5.4':
+            return base * 256  # ~1M (1,050,000)
         if self.config['model'] in GPT_5_MODELS:
             return base * 97  # ~400k
         raise NotImplementedError(f'Max tokens for model {self.config["model"]} is not implemented yet.')
