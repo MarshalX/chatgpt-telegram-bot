@@ -49,6 +49,7 @@ from telegram.ext import (
 )
 from usage_tracker import UsageTracker
 from utils import (
+    DirectResultError,
     add_chat_request_to_usage_tracker,
     edit_message_with_retry,
     encode_image,
@@ -57,7 +58,6 @@ from utils import (
     get_remaining_budget,
     get_reply_to_message_id,
     get_stream_cutoff_values,
-    DirectResultError,
     handle_direct_result,
     has_image_gen_permission,
     is_allowed,
@@ -884,15 +884,6 @@ class ChatGPTTelegramBot:
                     )
 
                 self.image_quality_cache[prompt_id]['low'] = {'file_id': file_id, 'caption': price_with_user}
-
-                user_id = update.message.from_user.id
-                if user_id not in self.usage:
-                    self.usage[user_id] = UsageTracker(user_id, update.message.from_user.name)
-
-                self.usage[user_id].add_image_request(image_size, self.config['image_prices'])
-                if str(user_id) not in self.config['allowed_user_ids'].split(',') and 'guests' in self.usage:
-                    self.usage['guests'].add_image_request(image_size, self.config['image_prices'])
-
             except Exception as e:
                 logging.exception(e)
                 await update.effective_message.reply_text(
@@ -977,15 +968,6 @@ class ChatGPTTelegramBot:
                     file_id = sent_msg.document.file_id
 
                 self.image_quality_cache[prompt_id][quality_param] = {'file_id': file_id, 'caption': price_with_user}
-
-                user_id = query.from_user.id
-                if user_id not in self.usage:
-                    self.usage[user_id] = UsageTracker(user_id, query.from_user.name)
-
-                self.usage[user_id].add_image_request(image_size, self.config['image_prices'])
-                if str(user_id) not in self.config['allowed_user_ids'].split(',') and 'guests' in self.usage:
-                    self.usage['guests'].add_image_request(image_size, self.config['image_prices'])
-
             except Exception as e:
                 logging.exception(e)
                 await context.bot.send_message(
