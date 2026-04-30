@@ -1,21 +1,19 @@
-version: '3'
 services:
-  chatgpt-telegram-bot:
-    build:
-      context: .
-      dockerfile: Dockerfile
+  bot:
+    build: .
+    image: chatgptbot
+    container_name: chatgptbot
+    restart: unless-stopped
     environment:
       - DD_API_KEY=${DD_API_KEY}
       - DD_SITE=${DD_SITE:-datadoghq.eu}
-      - DD_SERVICE=${DD_SERVICE:-chatgpt-telegram-bot}
+      - DD_SERVICE=${DD_SERVICE:-chatgptbot}
       - DD_LLMOBS_ENABLED=${DD_LLMOBS_ENABLED:-1}
       - DD_LLMOBS_AGENTLESS_ENABLED=${DD_LLMOBS_AGENTLESS_ENABLED:-1}
-      - DD_LLMOBS_ML_APP=${DD_LLMOBS_ML_APP:-chatgpt-telegram-bot}
+      - DD_LLMOBS_ML_APP=${DD_LLMOBS_ML_APP:-chatgptbot}
     volumes:
-      - .:/app
-      - /var/run/docker.sock:/var/run/docker.sock
-      - dagger-cache:/root/.dagger
-    restart: unless-stopped
-
-volumes:
-  dagger-cache:
+      - .:/usr/bot
+    deploy:
+      resources:
+        limits:
+          memory: 512M

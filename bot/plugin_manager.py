@@ -3,7 +3,6 @@ import logging
 from typing import TYPE_CHECKING, Dict
 
 from plugins.auto_tts import AutoTextToSpeech
-from plugins.code_execution import CodeExecutionPlugin
 from plugins.ddg_image_search import DDGImageSearchPlugin
 from plugins.dux_distributed_global_search import DDGSPlugin
 from plugins.firecrawl_scraper import FirecrawlScraperPlugin
@@ -48,7 +47,6 @@ class PluginManager:
             # 'iplocation': IpLocationPlugin,
             'website_content': WebsiteContentPlugin,
             # 'youtube_transcript': YoutubeTranscriptPlugin,
-            'code': CodeExecutionPlugin,
             'thinking': SequentialThinkingPlugin,
         }
 

@@ -18,7 +18,6 @@ lxml-html-clean==0.4.2
 youtube-transcript-api==1.2.3
 asyncpg==0.30.0
 google-api-python-client==2.140.0
-dagger-io==0.19.6
 pypdf==5.5.0
 aiofiles==25.1.0
 ddtrace==4.5.3
