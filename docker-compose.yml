@@ -4,15 +4,26 @@ services:
     image: chatgptbot
     container_name: chatgptbot
     restart: unless-stopped
+    labels:
+      com.datadoghq.tags.service: "chatgptbot"
+      com.datadoghq.tags.env: "prod"
+      com.datadoghq.tags.version: "${GIT_SHA:-unknown}"
+    env_file:
+      - .env
     environment:
-      - DD_API_KEY=${DD_API_KEY}
+      - DD_DOGSTATSD_URL=unix:///var/run/datadog/dsd.socket
+      - DD_TRACE_AGENT_URL=unix:///var/run/datadog/apm.socket
       - DD_SITE=${DD_SITE:-datadoghq.eu}
       - DD_SERVICE=${DD_SERVICE:-chatgptbot}
+      - DD_ENV=prod
+      - DD_VERSION=${GIT_SHA:-unknown}
       - DD_LLMOBS_ENABLED=${DD_LLMOBS_ENABLED:-1}
-      - DD_LLMOBS_AGENTLESS_ENABLED=${DD_LLMOBS_AGENTLESS_ENABLED:-1}
       - DD_LLMOBS_ML_APP=${DD_LLMOBS_ML_APP:-chatgptbot}
+      - DD_RUNTIME_METRICS_ENABLED=true
+      - DD_RUNTIME_METRICS_RUNTIME_ID_ENABLED=true
     volumes:
       - .:/usr/bot
+      - /var/run/datadog:/var/run/datadog
     deploy:
       resources:
         limits:
